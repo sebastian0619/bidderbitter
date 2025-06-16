@@ -23,9 +23,51 @@ class AIService:
     """AI服务类，提供各种AI能力"""
     
     def __init__(self):
-        self.openai_client = openai.OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY", "")
-        )
+        self.ai_provider = os.getenv("AI_PROVIDER", "openai").lower()
+        self.enable_ai = os.getenv("ENABLE_AI", "true").lower() == "true"
+        
+        # 初始化AI客户端
+        self.ai_client = None
+        if self.enable_ai:
+            self._init_ai_client()
+    
+    def _init_ai_client(self):
+        """初始化AI客户端"""
+        try:
+            if self.ai_provider == "openai":
+                self.ai_client = openai.OpenAI(
+                    api_key=os.getenv("OPENAI_API_KEY", ""),
+                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+                )
+                self.model = os.getenv("OPENAI_MODEL", "gpt-4")
+                self.vision_model = os.getenv("OPENAI_VISION_MODEL", "gpt-4-vision-preview")
+                
+            elif self.ai_provider == "azure":
+                from openai import AzureOpenAI
+                self.ai_client = AzureOpenAI(
+                    api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
+                    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "")
+                )
+                self.model = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
+                self.vision_model = os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT_NAME", "gpt-4-vision")
+                
+            elif self.ai_provider == "custom":
+                # 兼容OpenAI API的自定义服务
+                self.ai_client = openai.OpenAI(
+                    api_key=os.getenv("CUSTOM_AI_API_KEY", ""),
+                    base_url=os.getenv("CUSTOM_AI_BASE_URL", "")
+                )
+                self.model = os.getenv("CUSTOM_AI_MODEL", "gpt-4")
+                self.vision_model = os.getenv("CUSTOM_AI_VISION_MODEL", "gpt-4-vision")
+                
+            else:
+                logger.warning(f"不支持的AI提供商: {self.ai_provider}，将禁用AI功能")
+                self.enable_ai = False
+                
+        except Exception as e:
+            logger.error(f"初始化AI客户端失败: {str(e)}")
+            self.enable_ai = False
         
     async def extract_text_from_image(self, image_path: str) -> Dict:
         """从图片中提取文字"""
@@ -126,12 +168,20 @@ class AIService:
     
     async def analyze_award_document(self, text: str) -> Dict:
         """分析获奖文档内容"""
+        if not self.enable_ai or not self.ai_client:
+            return {
+                "analysis": {"awards": [], "confidence": 0.0},
+                "confidence": 0.0,
+                "processing_time": 0,
+                "message": "AI功能未启用或配置错误"
+            }
+            
         try:
             start_time = time.time()
             
             prompt = self._get_award_analysis_prompt()
             
-            response = await self._call_openai_api(
+            response = await self._call_ai_api(
                 prompt=prompt,
                 content=text,
                 max_tokens=1500
@@ -164,12 +214,20 @@ class AIService:
     
     async def analyze_performance_document(self, text: str) -> Dict:
         """分析业绩文档内容"""
+        if not self.enable_ai or not self.ai_client:
+            return {
+                "analysis": {"performances": [], "confidence": 0.0},
+                "confidence": 0.0,
+                "processing_time": 0,
+                "message": "AI功能未启用或配置错误"
+            }
+            
         try:
             start_time = time.time()
             
             prompt = self._get_performance_analysis_prompt()
             
-            response = await self._call_openai_api(
+            response = await self._call_ai_api(
                 prompt=prompt,
                 content=text,
                 max_tokens=1500
@@ -201,6 +259,13 @@ class AIService:
     
     async def analyze_image_content(self, image_path: str) -> Dict:
         """分析图像内容"""
+        if not self.enable_ai or not self.ai_client:
+            return {
+                "description": "AI功能未启用或配置错误",
+                "processing_time": 0,
+                "method": "disabled"
+            }
+            
         try:
             start_time = time.time()
             
@@ -208,15 +273,15 @@ class AIService:
             with open(image_path, "rb") as image_file:
                 image_base64 = base64.b64encode(image_file.read()).decode('utf-8')
             
-            # 使用GPT-4V分析图像
-            response = await self._call_openai_vision_api(image_base64)
+            # 使用Vision API分析图像
+            response = await self._call_vision_api(image_base64)
             
             processing_time = time.time() - start_time
             
             return {
                 "description": response,
                 "processing_time": processing_time,
-                "method": "gpt-4-vision"
+                "method": f"{self.ai_provider}-vision"
             }
             
         except Exception as e:
@@ -227,11 +292,14 @@ class AIService:
                 "error": str(e)
             }
     
-    async def _call_openai_api(self, prompt: str, content: str, max_tokens: int = 1000) -> str:
-        """调用OpenAI API"""
+    async def _call_ai_api(self, prompt: str, content: str, max_tokens: int = 1000) -> str:
+        """调用AI API"""
+        if not self.ai_client:
+            raise Exception("AI客户端未初始化")
+            
         try:
-            response = await self.openai_client.chat.completions.acreate(
-                model="gpt-4",
+            response = await self.ai_client.chat.completions.acreate(
+                model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": content}
@@ -241,14 +309,17 @@ class AIService:
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"OpenAI API调用失败: {str(e)}")
+            logger.error(f"AI API调用失败: {str(e)}")
             raise e
     
-    async def _call_openai_vision_api(self, image_base64: str) -> str:
-        """调用OpenAI Vision API"""
+    async def _call_vision_api(self, image_base64: str) -> str:
+        """调用Vision API"""
+        if not self.ai_client:
+            raise Exception("AI客户端未初始化")
+            
         try:
-            response = await self.openai_client.chat.completions.acreate(
-                model="gpt-4-vision-preview",
+            response = await self.ai_client.chat.completions.acreate(
+                model=self.vision_model,
                 messages=[
                     {
                         "role": "user",
@@ -270,7 +341,7 @@ class AIService:
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"OpenAI Vision API调用失败: {str(e)}")
+            logger.error(f"Vision API调用失败: {str(e)}")
             raise e
     
     def _get_award_analysis_prompt(self) -> str:

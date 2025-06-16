@@ -24,43 +24,86 @@ mkdir -p uploads screenshots generated_docs
 if [ ! -f .env ]; then
     echo "⚙️  创建环境变量文件..."
     cat > .env << EOF
-# 投标软件系统环境变量配置
+# ==================== 投标软件系统环境变量配置 ====================
 
-# OpenAI API配置（可选，用于AI功能）
-OPENAI_API_KEY=your_openai_api_key_here
-
-# 数据库配置
+# ==================== 数据库配置 ====================
 DATABASE_URL=postgresql://bidder_user:bidder_pass@postgres:5432/bidder_db
-POSTGRES_DB=bidder_db
-POSTGRES_USER=bidder_user
-POSTGRES_PASSWORD=bidder_pass
-
-# Redis配置
 REDIS_URL=redis://redis:6379
 
-# 应用配置
-API_BASE_URL=http://localhost:8000
-FRONTEND_URL=http://localhost:3000
+# ==================== AI服务配置 ====================
+# AI服务提供商选择: openai, azure, anthropic, google, custom
+AI_PROVIDER=openai
 
-# Selenium配置
+# OpenAI配置
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4
+OPENAI_VISION_MODEL=gpt-4-vision-preview
+
+# Azure OpenAI配置（如果使用Azure）
+# AZURE_OPENAI_API_KEY=your_azure_api_key
+# AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+# AZURE_OPENAI_API_VERSION=2024-02-01
+# AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+# AZURE_OPENAI_VISION_DEPLOYMENT_NAME=your-vision-deployment-name
+
+# 其他AI服务配置
+# ANTHROPIC_API_KEY=your_anthropic_api_key
+# GOOGLE_API_KEY=your_google_api_key
+# CUSTOM_AI_API_KEY=your_custom_api_key
+# CUSTOM_AI_BASE_URL=https://your-custom-api.com/v1
+
+# ==================== 截图服务配置 ====================
 SELENIUM_HUB_URL=http://chrome:4444/wd/hub
+ENABLE_SCREENSHOT=true
+SCREENSHOT_TIMEOUT=30
+SCREENSHOT_MAX_PAGES=20
 
-# 文件上传配置
-MAX_FILE_SIZE=50MB
+# ==================== 文件上传配置 ====================
+MAX_FILE_SIZE=52428800
+ALLOWED_FILE_TYPES=pdf,docx,doc,png,jpg,jpeg
 UPLOAD_PATH=/app/uploads
 SCREENSHOT_PATH=/app/screenshots
 GENERATED_DOCS_PATH=/app/generated_docs
 
-# 日志配置
+# ==================== 应用配置 ====================
+APP_ENV=production
 LOG_LEVEL=INFO
+DEBUG=false
+SECRET_KEY=your-secret-key-change-in-production
 
-# 是否启用AI功能
+# ==================== 功能开关 ====================
 ENABLE_AI=true
+ENABLE_OCR=true
+ENABLE_DOCUMENT_GENERATION=true
 
-# 是否启用截图功能
-ENABLE_SCREENSHOT=true
+# ==================== OCR配置 ====================
+OCR_LANGUAGES=chi_sim+eng
+OCR_ENGINE=tesseract
+
+# ==================== 文档生成配置 ====================
+WORD_TEMPLATE_PATH=/app/templates
+DEFAULT_FONT=Microsoft YaHei
+IMAGE_MAX_WIDTH=1654
+IMAGE_QUALITY=85
+
+# ==================== 性能配置 ====================
+WORKER_CONNECTIONS=1000
+MAX_CONCURRENT_REQUESTS=100
+REQUEST_TIMEOUT=300
+
+# ==================== 安全配置 ====================
+ALLOWED_HOSTS=*
+CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+
 EOF
     echo "✅ 环境变量文件已创建，请根据需要修改 .env 文件"
+    echo ""
+    echo "🔑 重要提示："
+    echo "   请在 .env 文件中配置您的 API 密钥："
+    echo "   - OPENAI_API_KEY: OpenAI API密钥（用于AI功能）"
+    echo "   - 或配置其他AI服务商的相关密钥"
+    echo "   - SECRET_KEY: 请更改为随机生成的安全密钥"
 fi
 
 # 停止可能运行的旧容器
