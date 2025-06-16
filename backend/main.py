@@ -68,10 +68,32 @@ async def init_base_data():
         
         # 初始化厂牌数据
         brands = [
-            {"name": "Chambers", "full_name": "Chambers and Partners", "website": "https://chambers.com"},
-            {"name": "Legal Band", "full_name": "Legal Band", "website": "https://legalband.com"},
-            {"name": "ALB", "full_name": "Asian Legal Business", "website": "https://www.legalbusinessonline.com"},
-            {"name": "IFLR", "full_name": "International Financial Law Review", "website": "https://www.iflr.com"}
+            # 国际知名法律评级机构
+            {"name": "Chambers", "full_name": "Chambers and Partners", "website": "https://chambers.com", "description": "全球权威法律评级机构"},
+            {"name": "Legal 500", "full_name": "The Legal 500", "website": "https://www.legal500.com", "description": "国际领先的法律目录"},
+            {"name": "IFLR", "full_name": "International Financial Law Review", "website": "https://www.iflr.com", "description": "国际金融法律评级"},
+            {"name": "Who's Who Legal", "full_name": "Who's Who Legal", "website": "https://whoswholegal.com", "description": "全球律师指南"},
+            {"name": "Best Lawyers", "full_name": "Best Lawyers", "website": "https://www.bestlawyers.com", "description": "美国最佳律师评级"},
+            
+            # 亚太地区法律评级机构
+            {"name": "ALB", "full_name": "Asian Legal Business", "website": "https://www.legalbusinessonline.com", "description": "亚洲法律商业杂志"},
+            {"name": "Legal Band", "full_name": "Legal Band", "website": "https://legalband.com", "description": "中国法律评级机构"},
+            {"name": "Asialaw", "full_name": "Asialaw Profiles", "website": "https://asialaw.com", "description": "亚洲法律评级"},
+            {"name": "China Law & Practice", "full_name": "China Law & Practice", "website": "https://www.chinalawandpractice.com", "description": "中国法律实务"},
+            {"name": "LEGALWEEK", "full_name": "LEGALWEEK", "website": "https://www.legalweek.com", "description": "法律周刊评级"},
+            
+            # 专业领域评级机构
+            {"name": "IAM", "full_name": "Intellectual Asset Management", "website": "https://www.iam-media.com", "description": "知识产权领域专业评级"},
+            {"name": "PLC Which Lawyer", "full_name": "PLC Which Lawyer", "website": "https://www.legal500.com", "description": "专业法律指南"},
+            {"name": "Global Arbitration Review", "full_name": "Global Arbitration Review", "website": "https://globalarbitrationreview.com", "description": "国际仲裁评级"},
+            {"name": "Global Competition Review", "full_name": "Global Competition Review", "website": "https://globalcompetitionreview.com", "description": "全球竞争法评级"},
+            {"name": "IFLR1000", "full_name": "IFLR1000", "website": "https://www.iflr1000.com", "description": "金融法律评级"},
+            
+            # 其他重要评级
+            {"name": "Benchmark Litigation", "full_name": "Benchmark Litigation", "website": "https://www.benchmarklitigation.com", "description": "诉讼律师评级"},
+            {"name": "China Business Law Journal", "full_name": "China Business Law Journal", "website": "https://www.cblj.com", "description": "中国商法杂志"},
+            {"name": "Korea Law", "full_name": "Korea Law", "website": "https://www.korealaw.com", "description": "韩国法律评级"},
+            {"name": "Japan Law", "full_name": "Japan Law", "website": "https://www.japanlaw.com", "description": "日本法律评级"}
         ]
         
         for brand_data in brands:
@@ -82,9 +104,57 @@ async def init_base_data():
         
         # 初始化业务领域数据
         business_fields = [
-            "银行与金融", "资本市场", "并购重组", "公司业务", "争议解决",
-            "知识产权", "劳动法", "税法", "房地产", "建设工程",
-            "环境法", "能源法", "航运海事", "国际贸易", "合规"
+            # 公司法律服务
+            "公司业务", "并购重组", "外商投资", "私募股权/风险投资", "公司治理",
+            "合规与监管", "反垄断与竞争法", "数据保护与隐私", "公司重组与破产",
+            
+            # 金融法律服务
+            "银行与金融", "资本市场", "债券发行", "资产证券化", "基金与资产管理",
+            "保险法", "融资租赁", "金融科技", "绿色金融", "REITs",
+            
+            # 争议解决
+            "争议解决", "国际仲裁", "商事仲裁", "诉讼代理", "调解服务",
+            "执行与保全", "跨境争议", "建设工程争议", "金融争议",
+            
+            # 专业法律领域
+            "知识产权", "专利申请与保护", "商标注册与维权", "版权保护", "商业秘密",
+            "反不正当竞争", "娱乐法", "体育法", "网络法", "电子商务法",
+            
+            # 基础设施与能源
+            "建设工程", "基础设施", "能源法", "石油天然气", "电力法",
+            "新能源", "环境法", "碳中和与ESG", "矿业法",
+            
+            # 房地产与土地
+            "房地产", "土地使用权", "房地产开发", "房地产投资", "物业管理",
+            "城市更新", "特色小镇", "产业园区",
+            
+            # 国际贸易与海事
+            "国际贸易", "海关与贸易合规", "反倾销与反补贴", "自贸区业务",
+            "航运海事", "船舶金融", "货物运输", "海事保险", "港口法务",
+            
+            # 劳动与社会保障
+            "劳动法", "劳动争议", "人力资源", "社会保险", "工伤赔偿",
+            "劳动合规", "外籍员工", "高管激励",
+            
+            # 税务与财务
+            "税法", "税务争议", "税务筹划", "国际税务", "转让定价",
+            "关税与进出口税", "增值税", "企业所得税", "个人所得税",
+            
+            # 新兴业务领域
+            "医疗健康", "生物医药", "医疗器械", "互联网", "人工智能",
+            "区块链", "虚拟货币", "游戏法", "教育法", "食品药品",
+            
+            # 政府与公共事务
+            "政府法律顾问", "PPP项目", "政府采购", "行政法", "刑事辩护",
+            "反腐败与职务犯罪", "监察法", "国家安全法",
+            
+            # 跨境业务
+            "跨境投资", "境外上市", "QFII/QDII", "外汇管理", "国际制裁",
+            "一带一路", "中美贸易", "跨境数据传输", "跨境电商",
+            
+            # 特殊行业
+            "航空航天", "汽车制造", "化工医药", "电信通信", "传媒娱乐",
+            "金融科技", "新零售", "供应链金融", "农业法", "旅游法"
         ]
         
         for field_name in business_fields:
