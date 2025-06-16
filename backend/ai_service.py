@@ -31,44 +31,102 @@ class AIService:
         if self.enable_ai:
             self._init_ai_client()
     
+    def _get_setting_value(self, key: str, default: str = "") -> str:
+        """从数据库获取设置值，如果不存在则返回环境变量或默认值"""
+        try:
+            from database import get_db
+            from models import SystemSettings
+            
+            db = next(get_db())
+            setting = db.query(SystemSettings).filter(
+                SystemSettings.setting_key == key
+            ).first()
+            
+            if setting and setting.setting_value:
+                return setting.setting_value
+            
+            # 如果数据库中没有，尝试从环境变量获取
+            env_mapping = {
+                "ai_provider": "AI_PROVIDER",
+                "ai_text_model": f"{self.ai_provider.upper()}_MODEL" if hasattr(self, 'ai_provider') else "OPENAI_MODEL",
+                "ai_vision_model": f"{self.ai_provider.upper()}_VISION_MODEL" if hasattr(self, 'ai_provider') else "OPENAI_VISION_MODEL",
+                "ai_api_key": f"{self.ai_provider.upper()}_API_KEY" if hasattr(self, 'ai_provider') else "OPENAI_API_KEY",
+                "ai_base_url": f"{self.ai_provider.upper()}_BASE_URL" if hasattr(self, 'ai_provider') else "OPENAI_BASE_URL"
+            }
+            
+            env_key = env_mapping.get(key, key.upper())
+            return os.getenv(env_key, default)
+            
+        except Exception as e:
+            logger.warning(f"无法从数据库获取设置 {key}: {str(e)}")
+            # 回退到环境变量
+            return os.getenv(key.upper(), default)
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
+    def reload_config(self):
+        """重新加载配置并重新初始化AI客户端"""
+        try:
+            logger.info("重新加载AI服务配置...")
+            
+            # 重新读取AI提供商设置
+            self.ai_provider = self._get_setting_value("ai_provider", "openai").lower()
+            self.enable_ai = self._get_setting_value("enable_ai", "true").lower() == "true"
+            
+            # 重新初始化AI客户端
+            self.ai_client = None
+            if self.enable_ai:
+                self._init_ai_client()
+                
+            logger.info(f"AI服务配置重载完成，当前提供商: {self.ai_provider}")
+            
+        except Exception as e:
+            logger.error(f"重新加载AI配置失败: {str(e)}")
+    
     def _init_ai_client(self):
         """初始化AI客户端"""
         try:
             if self.ai_provider == "openai":
                 self.ai_client = openai.OpenAI(
-                    api_key=os.getenv("OPENAI_API_KEY", ""),
-                    base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+                    api_key=self._get_setting_value("ai_api_key", os.getenv("OPENAI_API_KEY", "")),
+                    base_url=self._get_setting_value("ai_base_url", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
                 )
-                self.model = os.getenv("OPENAI_MODEL", "gpt-4")
-                self.vision_model = os.getenv("OPENAI_VISION_MODEL", "gpt-4-vision-preview")
+                self.model = self._get_setting_value("ai_text_model", os.getenv("OPENAI_MODEL", "gpt-4"))
+                self.vision_model = self._get_setting_value("ai_vision_model", os.getenv("OPENAI_VISION_MODEL", "gpt-4-vision-preview"))
                 
             elif self.ai_provider == "azure":
                 from openai import AzureOpenAI
                 self.ai_client = AzureOpenAI(
-                    api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
-                    api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-                    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "")
+                    api_key=self._get_setting_value("ai_api_key", os.getenv("AZURE_OPENAI_API_KEY", "")),
+                    api_version=self._get_setting_value("azure_api_version", os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")),
+                    azure_endpoint=self._get_setting_value("azure_endpoint", os.getenv("AZURE_OPENAI_ENDPOINT", ""))
                 )
-                self.model = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
-                self.vision_model = os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT_NAME", "gpt-4-vision")
+                self.model = self._get_setting_value("ai_text_model", os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4"))
+                self.vision_model = self._get_setting_value("ai_vision_model", os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT_NAME", "gpt-4-vision"))
                 
             elif self.ai_provider == "custom":
                 # 兼容OpenAI API的自定义服务
                 self.ai_client = openai.OpenAI(
-                    api_key=os.getenv("CUSTOM_AI_API_KEY", ""),
-                    base_url=os.getenv("CUSTOM_AI_BASE_URL", "")
+                    api_key=self._get_setting_value("ai_api_key", os.getenv("CUSTOM_AI_API_KEY", "")),
+                    base_url=self._get_setting_value("ai_base_url", os.getenv("CUSTOM_AI_BASE_URL", ""))
                 )
-                self.model = os.getenv("CUSTOM_AI_MODEL", "gpt-4")
-                self.vision_model = os.getenv("CUSTOM_AI_VISION_MODEL", "gpt-4-vision")
+                self.model = self._get_setting_value("ai_text_model", os.getenv("CUSTOM_AI_MODEL", "gpt-4"))
+                self.vision_model = self._get_setting_value("ai_vision_model", os.getenv("CUSTOM_AI_VISION_MODEL", "gpt-4-vision"))
                 
             else:
                 logger.warning(f"不支持的AI提供商: {self.ai_provider}，将禁用AI功能")
                 self.enable_ai = False
+            
+            if self.ai_client:
+                logger.info(f"AI客户端初始化成功 - 提供商: {self.ai_provider}, 文本模型: {self.model}, 视觉模型: {self.vision_model}")
                 
         except Exception as e:
             logger.error(f"初始化AI客户端失败: {str(e)}")
             self.enable_ai = False
-        
+    
     async def extract_text_from_image(self, image_path: str) -> Dict:
         """从图片中提取文字"""
         try:

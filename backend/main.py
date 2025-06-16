@@ -604,6 +604,194 @@ async def health_check():
         "version": "1.0.0"
     }
 
+# ==================== 系统设置管理 ====================
+
+@app.get("/api/settings")
+async def get_settings(category: Optional[str] = None, db: Session = Depends(get_db)):
+    """获取系统设置"""
+    try:
+        query = db.query(SystemSettings)
+        if category:
+            query = query.filter(SystemSettings.category == category)
+        
+        settings = query.all()
+        
+        # 将设置转换为字典格式
+        settings_dict = {}
+        for setting in settings:
+            # 敏感信息进行脱敏处理
+            value = setting.setting_value
+            if setting.is_sensitive and value:
+                value = "******" if len(value) > 6 else "*" * len(value)
+            
+            settings_dict[setting.setting_key] = {
+                "value": value,
+                "type": setting.setting_type,
+                "category": setting.category,
+                "description": setting.description,
+                "is_sensitive": setting.is_sensitive
+            }
+        
+        return {
+            "success": True,
+            "settings": settings_dict
+        }
+        
+    except Exception as e:
+        logger.error(f"获取设置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings")
+async def update_settings(
+    settings_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """更新系统设置"""
+    try:
+        updated_settings = []
+        
+        for key, value in settings_data.items():
+            # 查找现有设置
+            existing_setting = db.query(SystemSettings).filter(
+                SystemSettings.setting_key == key
+            ).first()
+            
+            if existing_setting:
+                # 更新现有设置
+                existing_setting.setting_value = str(value)
+                existing_setting.updated_at = datetime.utcnow()
+            else:
+                # 创建新设置（根据键名推断分类）
+                category = "general"
+                if key.startswith("ai_") or "model" in key.lower():
+                    category = "ai"
+                elif key.startswith("upload_"):
+                    category = "upload"
+                elif key.startswith("screenshot_"):
+                    category = "screenshot"
+                
+                new_setting = SystemSettings(
+                    setting_key=key,
+                    setting_value=str(value),
+                    category=category,
+                    is_sensitive="api_key" in key.lower() or "secret" in key.lower()
+                )
+                db.add(new_setting)
+            
+            updated_settings.append(key)
+        
+        db.commit()
+        
+        # 重新初始化AI服务以应用新的模型配置
+        if any("model" in key.lower() or "ai_" in key for key in updated_settings):
+            ai_service.reload_config()
+        
+        return {
+            "success": True,
+            "message": f"已更新 {len(updated_settings)} 个设置",
+            "updated_settings": updated_settings
+        }
+        
+    except Exception as e:
+        logger.error(f"更新设置失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings/init-defaults")
+async def init_default_settings(db: Session = Depends(get_db)):
+    """初始化默认设置"""
+    try:
+        default_settings = [
+            # AI模型设置
+            {
+                "key": "ai_provider",
+                "value": "openai",
+                "category": "ai",
+                "description": "AI服务提供商 (openai/azure/custom)"
+            },
+            {
+                "key": "ai_text_model",
+                "value": "gpt-4",
+                "category": "ai",
+                "description": "文本分析模型"
+            },
+            {
+                "key": "ai_vision_model",
+                "value": "gpt-4-vision-preview",
+                "category": "ai",
+                "description": "图像分析模型"
+            },
+            {
+                "key": "ai_api_key",
+                "value": "",
+                "category": "ai",
+                "description": "AI API密钥",
+                "is_sensitive": True
+            },
+            {
+                "key": "ai_base_url",
+                "value": "https://api.openai.com/v1",
+                "category": "ai",
+                "description": "AI API基础URL"
+            },
+            # 上传设置
+            {
+                "key": "upload_max_file_size",
+                "value": "52428800",
+                "category": "upload",
+                "description": "最大文件大小（字节）"
+            },
+            {
+                "key": "upload_allowed_types",
+                "value": "pdf,docx,doc,png,jpg,jpeg",
+                "category": "upload",
+                "description": "允许的文件类型"
+            },
+            # 截图设置
+            {
+                "key": "screenshot_timeout",
+                "value": "30",
+                "category": "screenshot",
+                "description": "截图超时时间（秒）"
+            },
+            {
+                "key": "screenshot_max_pages",
+                "value": "20",
+                "category": "screenshot",
+                "description": "最大截图页数"
+            }
+        ]
+        
+        created_count = 0
+        for setting_info in default_settings:
+            # 检查设置是否已存在
+            existing = db.query(SystemSettings).filter(
+                SystemSettings.setting_key == setting_info["key"]
+            ).first()
+            
+            if not existing:
+                new_setting = SystemSettings(
+                    setting_key=setting_info["key"],
+                    setting_value=setting_info["value"],
+                    category=setting_info["category"],
+                    description=setting_info["description"],
+                    is_sensitive=setting_info.get("is_sensitive", False)
+                )
+                db.add(new_setting)
+                created_count += 1
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"已初始化 {created_count} 个默认设置"
+        }
+        
+    except Exception as e:
+        logger.error(f"初始化默认设置失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 

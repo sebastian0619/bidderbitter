@@ -161,6 +161,30 @@ export const apiService = {
   // 健康检查
   healthCheck() {
     return api.get('/health')
+  },
+  
+  // 获取业绩统计
+  getPerformanceStats() {
+    return api.get('/stats/performances')
+  },
+  
+  // 系统设置相关
+  getSettings(category = null) {
+    const params = category ? { category } : {}
+    return api.get('/settings', { params })
+  },
+  
+  updateSettings(settingsData) {
+    return api.post('/settings', settingsData)
+  },
+  
+  initDefaultSettings() {
+    return api.post('/settings/init-defaults')
+  },
+  
+  // 获取业绩统计
+  getAwardStats() {
+    return api.get('/stats/awards')
   }
 }
 

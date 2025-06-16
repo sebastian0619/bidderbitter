@@ -162,4 +162,19 @@ class AIProcessLog(Base):
     error_message = Column(Text)  # 错误信息
     
     created_at = Column(DateTime, default=datetime.utcnow)
-    completed_at = Column(DateTime) 
+    completed_at = Column(DateTime)
+
+class SystemSettings(Base):
+    """系统设置表"""
+    __tablename__ = "system_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    setting_key = Column(String(100), unique=True, nullable=False)  # 设置键名
+    setting_value = Column(Text)  # 设置值
+    setting_type = Column(String(50), default="string")  # 设置类型: string, json, boolean, number
+    category = Column(String(50), nullable=False)  # 设置分类: ai, upload, screenshot, etc.
+    description = Column(Text)  # 设置描述
+    is_sensitive = Column(Boolean, default=False)  # 是否敏感信息（如API密钥）
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
