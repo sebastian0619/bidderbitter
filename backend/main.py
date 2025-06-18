@@ -19,6 +19,9 @@ from ai_service import ai_service
 from screenshot_service import screenshot_service
 from document_generator import document_generator
 import schemas
+# 导入新的API模块
+import project_api
+import template_api
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -26,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 # 创建FastAPI应用
 app = FastAPI(
-    title="投标软件系统",
-    description="法律行业投标资料管理和生成系统",
+    title="投标文件生成系统",
+    description="法律行业投标资料管理和生成系统，包括投标文件自动组装功能",
     version="1.0.0"
 )
 
@@ -60,6 +63,14 @@ async def startup_event():
         # 初始化基础数据
         await init_base_data()
         
+        # 注册项目API路由
+        project_api.setup_router(app)
+        
+        # 注册模板API路由
+        template_api.setup_router(app)
+        
+        logger.info("API路由注册完成")
+        
     except Exception as e:
         logger.error(f"应用启动失败: {str(e)}")
 
@@ -67,6 +78,9 @@ async def init_base_data():
     """初始化基础数据"""
     try:
         db = next(get_db())
+        
+        # 初始化系统设置
+        await init_default_settings(db)
         
         # 初始化厂牌数据
         brands = [
@@ -104,7 +118,7 @@ async def init_base_data():
                 brand = Brand(**brand_data)
                 db.add(brand)
         
-        # 初始化业务领域数据
+        # 初始化业务领域数据 - 移除重复的"金融科技"
         business_fields = [
             # 公司法律服务
             "公司业务", "并购重组", "外商投资", "私募股权/风险投资", "公司治理",
@@ -156,7 +170,7 @@ async def init_base_data():
             
             # 特殊行业
             "航空航天", "汽车制造", "化工医药", "电信通信", "传媒娱乐",
-            "金融科技", "新零售", "供应链金融", "农业法", "旅游法"
+            "新零售", "供应链金融", "农业法", "旅游法"
         ]
         
         for field_name in business_fields:

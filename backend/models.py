@@ -177,4 +177,132 @@ class SystemSettings(Base):
     is_sensitive = Column(Boolean, default=False)  # 是否敏感信息（如API密钥）
     
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+# 投标文件制作系统模型 - 开始
+
+class Project(Base):
+    """项目表"""
+    __tablename__ = "projects"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(300), nullable=False)  # 项目名称
+    tender_agency = Column(String(300))  # 招标代理机构
+    tender_company = Column(String(300))  # 招标人
+    bidder_name = Column(String(300))  # 投标人全称
+    deadline = Column(DateTime)  # 投标截止日期
+    status = Column(String(50), default="draft")  # 项目状态(draft/in_progress/completed)
+    description = Column(Text)  # 项目描述
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    sections = relationship("ProjectSection", back_populates="project", cascade="all, delete-orphan")
+    template_mappings = relationship("TemplateMapping", back_populates="project", cascade="all, delete-orphan")
+
+class ProjectSection(Base):
+    """项目章节表"""
+    __tablename__ = "project_sections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    title = Column(String(200), nullable=False)  # 章节标题
+    description = Column(Text)  # 章节描述
+    order = Column(Integer, default=0)  # 排序
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    project = relationship("Project", back_populates="sections")
+    documents = relationship("SectionDocument", back_populates="section", cascade="all, delete-orphan")
+
+class SectionDocument(Base):
+    """章节文档表"""
+    __tablename__ = "section_documents"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    section_id = Column(Integer, ForeignKey("project_sections.id"))
+    original_filename = Column(String(300))  # 原文件名
+    storage_path = Column(String(500))  # 存储路径
+    converted_path = Column(String(500))  # 转换后路径
+    file_type = Column(String(50))  # 文件类型
+    mime_type = Column(String(100))  # MIME类型
+    order = Column(Integer, default=0)  # 文档排序
+    page_count = Column(Integer)  # 页数
+    file_size = Column(Integer)  # 文件大小(字节)
+    is_processed = Column(Boolean, default=False)  # 是否已处理
+    processing_status = Column(String(50), default="pending")  # 处理状态(pending/processing/completed/failed)
+    error_message = Column(Text)  # 处理错误信息
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    section = relationship("ProjectSection", back_populates="documents")
+
+class Template(Base):
+    """模板表"""
+    __tablename__ = "templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)  # 模板名称
+    type = Column(String(50))  # 模板类型(cover/seal/bid_form等)
+    file_path = Column(String(500))  # 文件路径
+    description = Column(Text)  # 模板描述
+    is_default = Column(Boolean, default=False)  # 是否默认模板
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    fields = relationship("TemplateField", back_populates="template", cascade="all, delete-orphan")
+
+class TemplateField(Base):
+    """模板字段表"""
+    __tablename__ = "template_fields"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("templates.id"))
+    field_name = Column(String(100))  # 字段名
+    field_key = Column(String(100))  # 字段唯一标识符
+    field_type = Column(String(50))  # 字段类型(text/date/number)
+    placeholder = Column(String(200))  # 占位符
+    position = Column(JSON, nullable=True)  # 位置信息(x, y, width, height)
+    is_required = Column(Boolean, default=False)  # 是否必填
+    description = Column(Text)  # 字段描述
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    template = relationship("Template", back_populates="fields")
+
+class TemplateMapping(Base):
+    """模板字段映射表"""
+    __tablename__ = "template_mappings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    template_id = Column(Integer, ForeignKey("templates.id"))
+    field_id = Column(Integer, ForeignKey("template_fields.id"))
+    value = Column(Text)  # 填充的值
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联
+    project = relationship("Project", back_populates="template_mappings")
+    template = relationship("Template")
+    field = relationship("TemplateField")
+
+class GeneratedDocument(Base):
+    """生成的文档表"""
+    __tablename__ = "generated_documents"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"))
+    filename = Column(String(300))  # 文件名
+    file_path = Column(String(500))  # 文件路径
+    file_size = Column(Integer)  # 文件大小
+    page_count = Column(Integer)  # 页数
+    generation_time = Column(Float)  # 生成用时(秒)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 关联
+    project = relationship("Project") 
