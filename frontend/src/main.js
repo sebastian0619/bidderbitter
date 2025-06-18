@@ -1,35 +1,14 @@
 import { createApp } from 'vue'
 
+console.log('Vue main.js loaded')
+
 const app = createApp({
-  template: `
-    <div style="padding: 20px; text-align: center;">
-      <h1>投标文件制作系统</h1>
-      <p>系统正在初始化中...</p>
-      <div style="margin: 20px 0;">
-        <button @click="testApi" style="padding: 10px 20px; margin: 5px;">测试API连接</button>
-      </div>
-      <div v-if="apiResult" style="margin-top: 20px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">
-        <h3>API测试结果：</h3>
-        <pre>{{ apiResult }}</pre>
-      </div>
-    </div>
-  `,
-  data() {
-    return {
-      apiResult: null
-    }
-  },
-  methods: {
-    async testApi() {
-      try {
-        const response = await fetch('/api/health')
-        const data = await response.json()
-        this.apiResult = JSON.stringify(data, null, 2)
-      } catch (error) {
-        this.apiResult = '错误: ' + error.message
-      }
-    }
+  template: '<h1>Vue应用正常工作!</h1>',
+  mounted() {
+    console.log('Vue app mounted successfully')
   }
 })
 
-app.mount('#app') 
+console.log('About to mount Vue app')
+app.mount('#app')
+console.log('Vue app mount attempted') 
