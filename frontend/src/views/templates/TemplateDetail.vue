@@ -52,7 +52,7 @@
             </div>
           </template>
 
-          <el-empty v-if="fields.length === 0" description="暂无字段，点击"分析字段"按钮自动识别" />
+          <el-empty v-if="fields.length === 0" description="暂无字段，点击'分析字段'按钮自动识别" />
           
           <el-table v-else :data="fields" border style="width: 100%">
             <el-table-column prop="field_name" label="字段名称" min-width="120" />
