@@ -1,4 +1,12 @@
-FROM python:3.11-slim
+FROM hub.kingschats.com/python3.13-slim
+
+# 配置国内镜像源
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
+
+# 配置pip国内镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -12,6 +20,12 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libmagic1 \
+    postgresql-client \
+    libpq-dev \
+    gcc \
+    g++ \
+    python3-dev \
+    build-essential \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
