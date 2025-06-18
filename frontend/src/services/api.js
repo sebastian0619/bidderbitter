@@ -156,6 +156,142 @@ export const apiService = {
     })
   },
   
+  // ==================== 项目管理 ====================
+
+  // 获取项目列表
+  getProjects(params = {}) {
+    return api.get('/projects', { params })
+  },
+
+  // 获取项目详情
+  getProject(id) {
+    return api.get(`/projects/${id}`)
+  },
+
+  // 创建项目
+  createProject(data) {
+    return api.post('/projects', data)
+  },
+
+  // 更新项目
+  updateProject(id, data) {
+    return api.put(`/projects/${id}`, data)
+  },
+
+  // 删除项目
+  deleteProject(id) {
+    return api.delete(`/projects/${id}`)
+  },
+
+  // ==================== 章节管理 ====================
+
+  // 获取章节列表
+  getSections(projectId) {
+    return api.get(`/projects/${projectId}/sections`)
+  },
+
+  // 创建章节
+  createSection(projectId, data) {
+    return api.post(`/projects/${projectId}/sections`, data)
+  },
+
+  // 更新章节
+  updateSection(sectionId, data) {
+    return api.put(`/projects/sections/${sectionId}`, data)
+  },
+
+  // 删除章节
+  deleteSection(sectionId) {
+    return api.delete(`/projects/sections/${sectionId}`)
+  },
+
+  // 重新排序章节
+  reorderSections(items) {
+    return api.put('/projects/sections/reorder', { items })
+  },
+
+  // ==================== 文档管理 ====================
+
+  // 获取章节文档列表
+  getSectionDocuments(sectionId) {
+    return api.get(`/projects/sections/${sectionId}/documents`)
+  },
+
+  // 上传章节文档
+  uploadSectionDocument(sectionId, file, order = 0) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('order', order)
+    
+    return api.post(`/projects/sections/${sectionId}/documents`, formData)
+  },
+
+  // 删除文档
+  deleteDocument(documentId) {
+    return api.delete(`/projects/documents/${documentId}`)
+  },
+
+  // 重新排序文档
+  reorderDocuments(items) {
+    return api.put('/projects/documents/reorder', { items })
+  },
+
+  // 生成项目文档
+  generateProjectDocument(projectId) {
+    return api.post(`/projects/${projectId}/generate`)
+  },
+
+  // ==================== 模板管理 ====================
+
+  // 获取模板列表
+  getTemplates(params = {}) {
+    return api.get('/templates', { params })
+  },
+
+  // 获取模板详情
+  getTemplate(id) {
+    return api.get(`/templates/${id}`)
+  },
+
+  // 上传模板
+  uploadTemplate(data) {
+    const formData = new FormData()
+    Object.keys(data).forEach(key => {
+      if (key === 'file') {
+        formData.append('file', data[key])
+      } else {
+        formData.append(key, data[key])
+      }
+    })
+    
+    return api.post('/templates', formData)
+  },
+
+  // 分析模板
+  analyzeTemplate(templateId) {
+    return api.post(`/templates/${templateId}/analyze`)
+  },
+
+  // 获取模板字段
+  getTemplateFields(templateId) {
+    return api.get(`/templates/${templateId}/fields`)
+  },
+
+  // 应用模板
+  applyTemplate(templateId, projectId, fieldValues, outputFilename = null) {
+    return api.post('/templates/apply', {
+      template_id: templateId,
+      project_id: projectId,
+      field_values: fieldValues,
+      output_filename: outputFilename
+    })
+  },
+
+  // 获取项目字段映射
+  getProjectMappings(projectId) {
+    return api.get(`/templates/projects/${projectId}/mappings`)
+  },
+  
   // ==================== 健康检查 ====================
   
   // 健康检查
