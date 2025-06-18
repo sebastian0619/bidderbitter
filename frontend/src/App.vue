@@ -55,9 +55,9 @@
             </div>
             
             <div class="header-actions">
-              <el-button :icon="isDark ? 'Sunny' : 'Moon'" @click="toggleDark" circle />
+              <el-button @click="toggleDark" circle>🌙</el-button>
               <el-badge :value="processingTasks" class="badge-item">
-                <el-button icon="Bell" circle />
+                <el-button circle>🔔</el-button>
               </el-badge>
             </div>
           </div>
@@ -90,15 +90,16 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useDark, useToggle } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
 import { House, Document, Setting, Folder, Files } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const appStore = useAppStore()
 
-const isDark = useDark()
-const toggleDark = useToggle(isDark)
+const isDark = ref(false)
+const toggleDark = () => {
+  isDark.value = !isDark.value
+}
 
 const currentRoute = computed(() => route)
 const processingTasks = ref(0)
