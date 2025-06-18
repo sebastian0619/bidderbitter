@@ -1,20 +1,35 @@
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
-import 'element-plus/theme-chalk/dark/css-vars.css'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
 
-import App from './App.vue'
-import router from './router'
-import './styles/index.scss'
-
-const app = createApp(App)
-
-app.use(createPinia())
-app.use(router)
-app.use(ElementPlus, {
-  locale: zhCn,
+const app = createApp({
+  template: `
+    <div style="padding: 20px; text-align: center;">
+      <h1>投标文件制作系统</h1>
+      <p>系统正在初始化中...</p>
+      <div style="margin: 20px 0;">
+        <button @click="testApi" style="padding: 10px 20px; margin: 5px;">测试API连接</button>
+      </div>
+      <div v-if="apiResult" style="margin-top: 20px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">
+        <h3>API测试结果：</h3>
+        <pre>{{ apiResult }}</pre>
+      </div>
+    </div>
+  `,
+  data() {
+    return {
+      apiResult: null
+    }
+  },
+  methods: {
+    async testApi() {
+      try {
+        const response = await fetch('/api/health')
+        const data = await response.json()
+        this.apiResult = JSON.stringify(data, null, 2)
+      } catch (error) {
+        this.apiResult = '错误: ' + error.message
+      }
+    }
+  }
 })
 
 app.mount('#app') 
