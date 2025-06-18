@@ -18,6 +18,16 @@
             <span>数据管理</span>
           </el-menu-item>
           
+          <el-menu-item index="/projects">
+            <el-icon><Folder /></el-icon>
+            <span>投标项目管理</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/templates">
+            <el-icon><Files /></el-icon>
+            <span>模板管理</span>
+          </el-menu-item>
+          
           <el-menu-item index="/converter">
             <el-icon><Document /></el-icon>
             <span>文件转Word</span>
@@ -82,6 +92,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useDark, useToggle } from '@vueuse/core'
 import { useAppStore } from '@/stores/app'
+import { House, Document, Setting, Folder, Files } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const appStore = useAppStore()
