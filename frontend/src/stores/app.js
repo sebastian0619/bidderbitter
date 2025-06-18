@@ -55,18 +55,23 @@ export const useAppStore = defineStore('app', () => {
     try {
       setLoading(true, '正在初始化应用...')
       
-      // 并行加载配置数据
-      const [brandsResult, fieldsResult] = await Promise.all([
-        apiService.getBrands(),
-        apiService.getBusinessFields()
-      ])
-      
-      if (brandsResult.success) {
-        brands.value = brandsResult.brands
-      }
-      
-      if (fieldsResult.success) {
-        businessFields.value = fieldsResult.business_fields
+      try {
+        // 并行加载配置数据
+        const [brandsResult, fieldsResult] = await Promise.all([
+          apiService.getBrands(),
+          apiService.getBusinessFields()
+        ])
+        
+        if (brandsResult && brandsResult.brands) {
+          brands.value = brandsResult.brands
+        }
+        
+        if (fieldsResult && fieldsResult.business_fields) {
+          businessFields.value = fieldsResult.business_fields
+        }
+      } catch (apiError) {
+        console.warn('配置数据加载失败，使用默认值:', apiError)
+        // 使用默认值继续初始化
       }
       
       initialized.value = true
@@ -86,11 +91,11 @@ export const useAppStore = defineStore('app', () => {
         apiService.getBusinessFields()
       ])
       
-      if (brandsResult.success) {
+      if (brandsResult && brandsResult.brands) {
         brands.value = brandsResult.brands
       }
       
-      if (fieldsResult.success) {
+      if (fieldsResult && fieldsResult.business_fields) {
         businessFields.value = fieldsResult.business_fields
       }
       
