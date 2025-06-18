@@ -1,4 +1,4 @@
-FROM hub.kingschats.com/python3.13-slim
+FROM hub.kingschats.com/python:3.13-slim
 
 # 配置国内镜像源
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \

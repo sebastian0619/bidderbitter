@@ -1,5 +1,5 @@
 # 构建阶段
-FROM node:18-alpine AS build-stage
+FROM hub.kingschats.com/node:18-alpine AS build-stage
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build
 
 # 生产阶段
-FROM nginx:alpine AS production-stage
+FROM hub.kingschats.com/nginx:alpine AS production-stage
 
 # 复制构建产物到nginx
 COPY --from=build-stage /app/dist /usr/share/nginx/html
