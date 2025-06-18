@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, Union
 import os
+import sys
 import shutil
 import asyncio
 import logging
@@ -13,15 +14,24 @@ import json
 from docx import Document
 from PIL import Image
 
+# 添加当前目录到sys.path以确保模块可以被导入
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from database import get_db, init_db
 from models import *
 from ai_service import ai_service
 from screenshot_service import screenshot_service
 from document_generator import document_generator
 import schemas
-# 导入新的API模块
-import project_api
-import template_api
+
+# 导入新的API模块（确保它们存在于同一目录下）
+try:
+    import project_api
+    import template_api
+    IMPORT_SUCCESS = True
+except ImportError as e:
+    logging.error(f"导入API模块失败: {str(e)}")
+    IMPORT_SUCCESS = False
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -63,13 +73,17 @@ async def startup_event():
         # 初始化基础数据
         await init_base_data()
         
-        # 注册项目API路由
-        project_api.setup_router(app)
-        
-        # 注册模板API路由
-        template_api.setup_router(app)
-        
-        logger.info("API路由注册完成")
+        # 注册API路由
+        if IMPORT_SUCCESS:
+            # 注册项目API路由
+            project_api.setup_router(app)
+            logger.info("项目API路由注册成功")
+            
+            # 注册模板API路由
+            template_api.setup_router(app)
+            logger.info("模板API路由注册成功")
+        else:
+            logger.error("API路由注册失败，模块导入错误")
         
     except Exception as e:
         logger.error(f"应用启动失败: {str(e)}")
@@ -778,6 +792,15 @@ async def init_default_settings(db: Session = Depends(get_db)):
             }
         ]
         
+        # 检查SystemSettings表是否存在
+        try:
+            # 尝试创建表
+            SystemSettings.__table__.create(bind=db.get_bind(), checkfirst=True)
+            logger.info("创建SystemSettings表成功")
+        except Exception as table_err:
+            logger.warning(f"创建表失败或表已存在: {str(table_err)}")
+        
+        # 创建设置
         created_count = 0
         for setting_info in default_settings:
             # 检查设置是否已存在
@@ -796,17 +819,13 @@ async def init_default_settings(db: Session = Depends(get_db)):
                 db.add(new_setting)
                 created_count += 1
         
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"已初始化 {created_count} 个默认设置"
-        }
+        if created_count > 0:
+            db.commit()
+            logger.info(f"已初始化 {created_count} 个默认设置")
         
     except Exception as e:
         logger.error(f"初始化默认设置失败: {str(e)}")
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/convert-to-word")
 async def convert_files_to_word(

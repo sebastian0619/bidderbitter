@@ -34,6 +34,59 @@ const routes = [
     }
   },
   {
+    path: '/projects',
+    name: 'Projects',
+    component: () => import('@/views/projects/ProjectList.vue'),
+    meta: {
+      title: '投标项目管理'
+    }
+  },
+  {
+    path: '/projects/new',
+    name: 'CreateProject',
+    component: () => import('@/views/projects/ProjectForm.vue'),
+    meta: {
+      title: '创建投标项目',
+      mode: 'create'
+    }
+  },
+  {
+    path: '/projects/:id',
+    name: 'ProjectDetail',
+    component: () => import('@/views/projects/ProjectDetail.vue'),
+    meta: {
+      title: '项目详情'
+    },
+    props: true
+  },
+  {
+    path: '/projects/:id/edit',
+    name: 'EditProject',
+    component: () => import('@/views/projects/ProjectForm.vue'),
+    meta: {
+      title: '编辑项目',
+      mode: 'edit'
+    },
+    props: true
+  },
+  {
+    path: '/templates',
+    name: 'Templates',
+    component: () => import('@/views/templates/TemplateList.vue'),
+    meta: {
+      title: '文档模板管理'
+    }
+  },
+  {
+    path: '/templates/:id',
+    name: 'TemplateDetail',
+    component: () => import('@/views/templates/TemplateDetail.vue'),
+    meta: {
+      title: '模板详情'
+    },
+    props: true
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: NotFound
@@ -49,7 +102,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   // 设置页面标题
   if (to.meta.title) {
-    document.title = `${to.meta.title} - 法律投标系统`
+    document.title = `${to.meta.title} - 投标文件制作系统`
   }
   next()
 })
