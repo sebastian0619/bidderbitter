@@ -24,4 +24,5 @@ python-magic
 aiofiles
 httpx
 numpy
-Jinja2 
+Jinja2
+PyMuPDF 

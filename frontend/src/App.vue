@@ -15,38 +15,13 @@
         >
           <el-menu-item index="/dashboard">
             <el-icon><House /></el-icon>
-            <span>首页</span>
+            <span>数据管理</span>
           </el-menu-item>
           
-          <el-sub-menu index="awards">
-            <template #title>
-              <el-icon><Trophy /></el-icon>
-              <span>获奖管理</span>
-            </template>
-            <el-menu-item index="/awards/list">获奖列表</el-menu-item>
-            <el-menu-item index="/awards/upload">上传获奖文档</el-menu-item>
-            <el-menu-item index="/awards/manual">手动录入</el-menu-item>
-          </el-sub-menu>
-          
-          <el-sub-menu index="performances">
-            <template #title>
-              <el-icon><Document /></el-icon>
-              <span>业绩管理</span>
-            </template>
-            <el-menu-item index="/performances/list">业绩列表</el-menu-item>
-            <el-menu-item index="/performances/upload">上传业绩文档</el-menu-item>
-            <el-menu-item index="/performances/manual">手动录入</el-menu-item>
-          </el-sub-menu>
-          
-          <el-sub-menu index="generate">
-            <template #title>
-              <el-icon><DocumentAdd /></el-icon>
-              <span>文档生成</span>
-            </template>
-            <el-menu-item index="/generate/awards">获奖文档</el-menu-item>
-            <el-menu-item index="/generate/performances">业绩文档</el-menu-item>
-            <el-menu-item index="/generate/combined">综合文档</el-menu-item>
-          </el-sub-menu>
+          <el-menu-item index="/converter">
+            <el-icon><Document /></el-icon>
+            <span>文件转Word</span>
+          </el-menu-item>
           
           <el-menu-item index="/settings">
             <el-icon><Setting /></el-icon>

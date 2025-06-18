@@ -10,6 +10,8 @@ import asyncio
 import logging
 from datetime import datetime
 import json
+from docx import Document
+from PIL import Image
 
 from database import get_db, init_db
 from models import *
@@ -791,6 +793,140 @@ async def init_default_settings(db: Session = Depends(get_db)):
         logger.error(f"初始化默认设置失败: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/convert-to-word")
+async def convert_files_to_word(
+    files: List[UploadFile] = File(...),
+    document_title: str = Form(default="转换文档")
+):
+    """
+    将上传的PDF和图片文件转换为Word文档
+    """
+    try:
+        # 创建临时目录
+        temp_dir = "temp_conversions"
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # 创建Word文档
+        doc = Document()
+        doc.add_heading(document_title, 0)
+        
+        processed_files = []
+        
+        for file in files:
+            # 保存上传的文件
+            file_path = os.path.join(temp_dir, file.filename)
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            
+            if file_ext == '.pdf':
+                # PDF转图片再插入Word
+                await process_pdf_to_word(doc, file_path, file.filename)
+                processed_files.append(f"PDF: {file.filename}")
+            elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
+                # 图片直接插入Word
+                await process_image_to_word(doc, file_path, file.filename)
+                processed_files.append(f"图片: {file.filename}")
+            else:
+                processed_files.append(f"不支持的格式: {file.filename}")
+        
+        # 保存Word文档
+        output_filename = f"{document_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        output_path = os.path.join("uploads", output_filename)
+        doc.save(output_path)
+        
+        # 清理临时文件
+        import shutil
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        
+        return {
+            "success": True,
+            "message": "文件转换完成",
+            "output_file": output_filename,
+            "processed_files": processed_files,
+            "download_url": f"/api/download/{output_filename}"
+        }
+        
+    except Exception as e:
+        logger.error(f"文件转换失败: {str(e)}")
+        return {"success": False, "message": f"转换失败: {str(e)}"}
+
+async def process_pdf_to_word(doc, pdf_path, filename):
+    """将PDF转换为图片并插入Word"""
+    try:
+        import fitz  # PyMuPDF
+        
+        doc.add_heading(f"来源文件: {filename}", level=1)
+        
+        # 打开PDF
+        pdf_document = fitz.open(pdf_path)
+        
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            
+            # 将页面转换为图片
+            mat = fitz.Matrix(2.0, 2.0)  # 提高分辨率
+            pix = page.get_pixmap(matrix=mat)
+            
+            # 保存为临时图片
+            temp_image_path = f"temp_page_{page_num + 1}.png"
+            pix.save(temp_image_path)
+            
+            # 添加页面标题
+            doc.add_heading(f"第 {page_num + 1} 页", level=2)
+            
+            # 插入图片到Word
+            try:
+                from docx.shared import Inches
+                doc.add_picture(temp_image_path, width=Inches(6))
+                doc.add_page_break()
+            except Exception as e:
+                doc.add_paragraph(f"图片插入失败: {str(e)}")
+            
+            # 删除临时图片
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+        
+        pdf_document.close()
+        
+    except Exception as e:
+        doc.add_paragraph(f"PDF处理失败 ({filename}): {str(e)}")
+
+async def process_image_to_word(doc, image_path, filename):
+    """将图片直接插入Word"""
+    try:
+        from docx.shared import Inches
+        
+        doc.add_heading(f"图片: {filename}", level=1)
+        
+        # 获取图片信息
+        with Image.open(image_path) as img:
+            width, height = img.size
+            doc.add_paragraph(f"尺寸: {width} x {height} 像素")
+        
+        # 插入图片
+        doc.add_picture(image_path, width=Inches(6))
+        doc.add_page_break()
+        
+    except Exception as e:
+        doc.add_paragraph(f"图片处理失败 ({filename}): {str(e)}")
+
+@app.get("/api/download/{filename}")
+async def download_file(filename: str):
+    """下载生成的Word文档"""
+    file_path = os.path.join("uploads", filename)
+    if os.path.exists(file_path):
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+    else:
+        raise HTTPException(status_code=404, detail="文件不存在")
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,4 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import Dashboard from '@/views/Dashboard.vue'
+import Settings from '@/views/Settings.vue'
+import FileConverter from '@/views/FileConverter.vue'
+import NotFound from '@/views/NotFound.vue'
 
 const routes = [
   {
@@ -8,92 +12,46 @@ const routes = [
   {
     path: '/dashboard',
     name: 'Dashboard',
-    component: () => import('@/views/Dashboard.vue'),
-    meta: { title: '首页' }
+    component: Dashboard,
+    meta: {
+      title: '数据管理'
+    }
   },
   {
-    path: '/awards',
-    redirect: '/awards/list'
-  },
-  {
-    path: '/awards/list',
-    name: 'AwardsList',
-    component: () => import('@/views/Awards/AwardsList.vue'),
-    meta: { title: '获奖列表' }
-  },
-  {
-    path: '/awards/upload',
-    name: 'AwardsUpload',
-    component: () => import('@/views/Awards/AwardsUpload.vue'),
-    meta: { title: '上传获奖文档' }
-  },
-  {
-    path: '/awards/manual',
-    name: 'AwardsManual',
-    component: () => import('@/views/Awards/AwardsManual.vue'),
-    meta: { title: '手动录入获奖' }
-  },
-  {
-    path: '/performances',
-    redirect: '/performances/list'
-  },
-  {
-    path: '/performances/list',
-    name: 'PerformancesList',
-    component: () => import('@/views/Performances/PerformancesList.vue'),
-    meta: { title: '业绩列表' }
-  },
-  {
-    path: '/performances/upload',
-    name: 'PerformancesUpload',
-    component: () => import('@/views/Performances/PerformancesUpload.vue'),
-    meta: { title: '上传业绩文档' }
-  },
-  {
-    path: '/performances/manual',
-    name: 'PerformancesManual',
-    component: () => import('@/views/Performances/PerformancesManual.vue'),
-    meta: { title: '手动录入业绩' }
-  },
-  {
-    path: '/generate',
-    redirect: '/generate/combined'
-  },
-  {
-    path: '/generate/awards',
-    name: 'GenerateAwards',
-    component: () => import('@/views/Generate/GenerateAwards.vue'),
-    meta: { title: '生成获奖文档' }
-  },
-  {
-    path: '/generate/performances',
-    name: 'GeneratePerformances',
-    component: () => import('@/views/Generate/GeneratePerformances.vue'),
-    meta: { title: '生成业绩文档' }
-  },
-  {
-    path: '/generate/combined',
-    name: 'GenerateCombined',
-    component: () => import('@/views/Generate/GenerateCombined.vue'),
-    meta: { title: '生成综合文档' }
+    path: '/converter',
+    name: 'FileConverter',
+    component: FileConverter,
+    meta: {
+      title: '文件转Word'
+    }
   },
   {
     path: '/settings',
     name: 'Settings',
-    component: () => import('@/views/Settings.vue'),
-    meta: { title: '系统设置' }
+    component: Settings,
+    meta: {
+      title: '系统设置'
+    }
   },
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: () => import('@/views/NotFound.vue'),
-    meta: { title: '页面不存在' }
+    component: NotFound
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 路由守卫
+router.beforeEach((to, from, next) => {
+  // 设置页面标题
+  if (to.meta.title) {
+    document.title = `${to.meta.title} - 法律投标系统`
+  }
+  next()
 })
 
 export default router 
