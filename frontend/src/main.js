@@ -1,24 +1,37 @@
-import { createApp, h } from 'vue'
+import { createApp } from 'vue'
+import App from './App.vue'
+import router from './router'
+import { createPinia } from 'pinia'
+
+// Element Plus
+import ElementPlus from 'element-plus'
+import 'element-plus/dist/index.css'
+import 'element-plus/theme-chalk/dark/css-vars.css'
+import * as ElementPlusIconsVue from '@element-plus/icons-vue'
+
+// 全局样式
+import './styles/index.scss'
 
 console.log('Vue main.js loaded')
 
-const app = createApp({
-  render() {
-    return h('div', { style: 'padding: 20px; text-align: center; color: red; font-size: 24px;' }, [
-      h('h1', 'Vue应用正常工作!'),
-      h('p', '这是使用渲染函数创建的内容'),
-      h('button', { 
-        onClick: () => alert('按钮点击成功!'),
-        style: 'padding: 10px 20px; margin: 10px; font-size: 16px;'
-      }, '点击测试')
-    ])
-  },
-  mounted() {
-    console.log('Vue app mounted successfully')
-    document.title = 'Vue App Working!'
-  }
-})
+const app = createApp(App)
+
+// 安装插件
+app.use(createPinia())
+app.use(router)
+app.use(ElementPlus)
+
+// 注册所有图标
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+  app.component(key, component)
+}
+
+// 全局配置
+app.config.globalProperties.$ELEMENT = {
+  size: 'default',
+  zIndex: 3000
+}
 
 console.log('About to mount Vue app')
 app.mount('#app')
-console.log('Vue app mount attempted') 
+console.log('Vue app mounted successfully') 
