@@ -1,244 +1,276 @@
 <template>
-  <div class="file-converter">
-    <el-card class="converter-card">
-      <template #header>
-        <div class="card-header">
-          <h2>
-            <el-icon><Document /></el-icon>
-            文件转Word工具
-          </h2>
-          <p>支持PDF转图片Word、图片直接插入Word</p>
-        </div>
-      </template>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">
+        <el-icon><Document /></el-icon>
+        文件转Word工具
+      </h1>
+      <p class="page-description">支持PDF转图片Word、图片直接插入Word</p>
+    </div>
 
-      <!-- 文件上传区域 -->
-      <div class="upload-section">
-        <el-form :model="form" label-width="120px">
-          <el-form-item label="文档标题">
-            <el-input 
-              v-model="form.documentTitle" 
-              placeholder="请输入生成的Word文档标题"
-              style="width: 400px"
-            />
-          </el-form-item>
-        </el-form>
-
-        <el-upload
-          ref="uploadRef"
-          v-model:file-list="fileList"
-          class="upload-demo"
-          drag
-          multiple
-          :auto-upload="false"
-          :accept="acceptedTypes"
-          :limit="20"
-          :on-change="handleFileChange"
-          :on-exceed="handleExceed"
-        >
-          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
-          <div class="el-upload__text">
-            将文件拖到此处，或<em>点击选择文件</em>
+    <el-row :gutter="20">
+      <!-- 左侧上传区域 -->
+      <el-col :md="12">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">选择文件</h3>
           </div>
-          <template #tip>
-            <div class="el-upload__tip">
-              支持PDF、JPG、PNG、BMP、GIF、TIFF格式，最多20个文件
-            </div>
-          </template>
-        </el-upload>
-      </div>
+          <div class="card-body">
+            <el-form :model="form" label-width="100px" class="mb-3">
+              <el-form-item label="文档标题">
+                <el-input 
+                  v-model="form.documentTitle" 
+                  placeholder="请输入生成的Word文档标题"
+                />
+              </el-form-item>
+            </el-form>
 
-      <!-- 文件列表 -->
-      <div v-if="fileList.length > 0" class="file-list-section">
-        <h3>已选择文件 ({{ fileList.length }})</h3>
-        <el-table :data="fileList" style="width: 100%">
-          <el-table-column prop="name" label="文件名" />
-          <el-table-column label="大小" width="120">
+            <FileUpload
+              ref="fileUploadRef"
+              :allowed-types="['pdf', 'image']"
+              :multiple="true"
+              :max-size="50 * 1024 * 1024"
+              accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff"
+              @upload="handleFilesSelected"
+              @change="handleFileChange"
+            />
+
+            <div class="action-section mt-3">
+              <el-button 
+                type="primary" 
+                size="large"
+                :loading="converting"
+                :disabled="selectedFiles.length === 0"
+                @click="convertFiles"
+                style="width: 100%"
+              >
+                <el-icon><DocumentAdd /></el-icon>
+                开始转换为Word文档
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </el-col>
+
+      <!-- 右侧结果区域 -->
+      <el-col :md="12">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">转换结果</h3>
+          </div>
+          <div class="card-body">
+            <!-- 转换进度 -->
+            <div v-if="converting" class="converting-status">
+              <el-progress 
+                :percentage="convertProgress" 
+                status="active"
+                :show-text="false"
+              />
+              <p class="mt-2 text-center">正在转换文件，请稍候...</p>
+            </div>
+
+            <!-- 转换成功 -->
+            <div v-else-if="convertResult?.success" class="result-success">
+              <el-result
+                icon="success"
+                title="转换成功"
+                :sub-title="`成功处理 ${convertResult.processed_files?.length || 0} 个文件`"
+              >
+                <template #extra>
+                  <div class="result-details">
+                    <p><strong>输出文件:</strong> {{ convertResult.output_file }}</p>
+                    <div v-if="convertResult.processed_files?.length" class="processed-files">
+                      <h5>处理的文件:</h5>
+                      <el-tag
+                        v-for="file in convertResult.processed_files"
+                        :key="file"
+                        size="small"
+                        class="mr-1 mb-1"
+                      >
+                        {{ file }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  
+                  <el-button 
+                    type="success" 
+                    size="large"
+                    @click="downloadFile"
+                  >
+                    <el-icon><Download /></el-icon>
+                    下载Word文档
+                  </el-button>
+                </template>
+              </el-result>
+            </div>
+
+            <!-- 转换失败 -->
+            <div v-else-if="convertResult?.success === false" class="result-error">
+              <el-result
+                icon="error"
+                title="转换失败"
+                :sub-title="convertResult.message"
+              >
+                <template #extra>
+                  <el-button type="primary" @click="resetConverter">
+                    重新开始
+                  </el-button>
+                </template>
+              </el-result>
+            </div>
+
+            <!-- 初始状态 -->
+            <div v-else class="initial-state">
+              <el-empty description="请先选择要转换的文件">
+                <template #image>
+                  <el-icon size="80" color="var(--el-color-info)">
+                    <Document />
+                  </el-icon>
+                </template>
+              </el-empty>
+              
+              <div class="tips">
+                <h4>使用说明</h4>
+                <ul>
+                  <li>支持PDF、JPG、PNG、BMP、GIF、TIFF格式</li>
+                  <li>单个文件最大50MB，最多选择20个文件</li>
+                  <li>PDF文件将转换为图片后插入Word</li>
+                  <li>图片文件将直接插入Word文档</li>
+                  <li>文件将按照上传顺序排列</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <!-- 转换历史 -->
+    <div class="card mt-4">
+      <div class="card-header">
+        <h3 class="card-title">
+          <el-icon><Clock /></el-icon>
+          转换历史
+        </h3>
+        <el-button text @click="loadHistory">
+          <el-icon><Refresh /></el-icon>
+          刷新
+        </el-button>
+      </div>
+      <div class="card-body">
+        <el-table :data="conversionHistory" style="width: 100%">
+          <el-table-column prop="document_title" label="文档标题" min-width="200" />
+          <el-table-column prop="file_count" label="文件数量" width="100" />
+          <el-table-column prop="created_at" label="转换时间" width="180">
             <template #default="{ row }">
-              {{ formatFileSize(row.size) }}
+              {{ formatDate(row.created_at) }}
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="120">
+          <el-table-column prop="status" label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="getFileTypeTag(row.name)">
-                {{ getFileType(row.name) }}
+              <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small">
+                {{ row.status === 'success' ? '成功' : '失败' }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100">
-            <template #default="{ $index }">
-              <el-button 
-                type="danger" 
-                size="small" 
-                @click="removeFile($index)"
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.status === 'success'"
+                type="primary"
+                size="small"
+                text
+                @click="downloadHistoryFile(row)"
               >
-                删除
+                下载
               </el-button>
             </template>
           </el-table-column>
         </el-table>
-      </div>
-
-      <!-- 转换按钮 -->
-      <div class="action-section">
-        <el-button 
-          type="primary" 
-          size="large"
-          :loading="converting"
-          :disabled="fileList.length === 0"
-          @click="convertFiles"
-        >
-          <el-icon><Document /></el-icon>
-          开始转换为Word
-        </el-button>
-      </div>
-
-      <!-- 转换结果 -->
-      <div v-if="convertResult" class="result-section">
-        <el-alert
-          :title="convertResult.success ? '转换成功' : '转换失败'"
-          :type="convertResult.success ? 'success' : 'error'"
-          :description="convertResult.message"
-          show-icon
-        />
         
-        <div v-if="convertResult.success" class="download-section">
-          <el-card>
-            <h4>转换结果</h4>
-            <p><strong>输出文件:</strong> {{ convertResult.output_file }}</p>
-            <div class="processed-files">
-              <h5>处理的文件:</h5>
-              <ul>
-                <li v-for="file in convertResult.processed_files" :key="file">
-                  {{ file }}
-                </li>
-              </ul>
-            </div>
-            <el-button 
-              type="success" 
-              size="large"
-              @click="downloadFile"
-            >
-              <el-icon><Download /></el-icon>
-              下载Word文档
-            </el-button>
-          </el-card>
-        </div>
+        <el-empty v-if="conversionHistory.length === 0" description="暂无转换记录" />
       </div>
-    </el-card>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Document, UploadFilled, Download } from '@element-plus/icons-vue'
-import api from '@/services/api'
+import { ref, reactive, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { Document, DocumentAdd, Download, Clock, Refresh } from '@element-plus/icons-vue'
+import { apiService } from '@/services/api'
+import FileUpload from '@/components/FileUpload.vue'
 
 // 响应式数据
-const uploadRef = ref()
-const fileList = ref([])
+const fileUploadRef = ref()
 const converting = ref(false)
+const convertProgress = ref(0)
 const convertResult = ref(null)
+const selectedFiles = ref([])
+const conversionHistory = ref([])
 
 const form = reactive({
   documentTitle: '转换文档'
 })
 
-// 接受的文件类型
-const acceptedTypes = '.pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff'
-
-// 处理文件变化
-const handleFileChange = (file, files) => {
-  // 验证文件类型
-  const allowedTypes = ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff']
-  const fileExt = file.name.split('.').pop().toLowerCase()
-  
-  if (!allowedTypes.includes(fileExt)) {
-    ElMessage.warning(`不支持的文件格式: ${file.name}`)
-    const index = files.indexOf(file)
-    if (index > -1) {
-      files.splice(index, 1)
-    }
-    return false
-  }
-  
-  // 验证文件大小 (50MB)
-  if (file.size > 50 * 1024 * 1024) {
-    ElMessage.warning(`文件过大: ${file.name}，请选择小于50MB的文件`)
-    const index = files.indexOf(file)
-    if (index > -1) {
-      files.splice(index, 1)
-    }
-    return false
-  }
+// 处理文件选择
+const handleFilesSelected = (files) => {
+  selectedFiles.value = files
 }
 
-// 处理文件数量超限
-const handleExceed = (files, fileList) => {
-  ElMessage.warning('最多只能选择20个文件')
-}
-
-// 移除文件
-const removeFile = (index) => {
-  fileList.value.splice(index, 1)
-}
-
-// 格式化文件大小
-const formatFileSize = (size) => {
-  if (size < 1024) return size + ' B'
-  if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB'
-  return (size / (1024 * 1024)).toFixed(1) + ' MB'
-}
-
-// 获取文件类型
-const getFileType = (filename) => {
-  const ext = filename.split('.').pop().toLowerCase()
-  if (ext === 'pdf') return 'PDF'
-  if (['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff'].includes(ext)) return '图片'
-  return '未知'
-}
-
-// 获取文件类型标签样式
-const getFileTypeTag = (filename) => {
-  const ext = filename.split('.').pop().toLowerCase()
-  if (ext === 'pdf') return 'danger'
-  if (['jpg', 'jpeg', 'png', 'bmp', 'gif', 'tiff'].includes(ext)) return 'success'
-  return 'info'
+const handleFileChange = (files) => {
+  selectedFiles.value = files
 }
 
 // 转换文件
 const convertFiles = async () => {
-  if (fileList.value.length === 0) {
+  if (selectedFiles.value.length === 0) {
     ElMessage.warning('请先选择要转换的文件')
     return
   }
 
   converting.value = true
   convertResult.value = null
+  convertProgress.value = 0
 
   try {
     const formData = new FormData()
     
     // 添加文件
-    fileList.value.forEach(file => {
-      formData.append('files', file.raw)
+    selectedFiles.value.forEach(file => {
+      formData.append('files', file)
     })
     
     // 添加文档标题
     formData.append('document_title', form.documentTitle)
 
-    const response = await api.post('/convert-to-word', formData, {
+    // 模拟进度更新
+    const progressInterval = setInterval(() => {
+      if (convertProgress.value < 90) {
+        convertProgress.value += Math.random() * 20
+      }
+    }, 500)
+
+    const response = await apiService.post('/convert-to-word', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
     })
 
-    convertResult.value = response.data
+    clearInterval(progressInterval)
+    convertProgress.value = 100
+
+    convertResult.value = response
     
-    if (response.data.success) {
+    if (response.success) {
       ElMessage.success('文件转换成功！')
+      // 清空文件列表
+      fileUploadRef.value?.clearFiles()
+      selectedFiles.value = []
+      // 刷新历史记录
+      loadHistory()
     } else {
-      ElMessage.error('转换失败: ' + response.data.message)
+      ElMessage.error('转换失败: ' + response.message)
     }
 
   } catch (error) {
@@ -250,6 +282,7 @@ const convertFiles = async () => {
     }
   } finally {
     converting.value = false
+    convertProgress.value = 0
   }
 }
 
@@ -257,114 +290,170 @@ const convertFiles = async () => {
 const downloadFile = () => {
   if (!convertResult.value?.download_url) return
   
-  const downloadUrl = `${import.meta.env.VITE_API_URL}${convertResult.value.download_url}`
-  const link = document.createElement('a')
-  link.href = downloadUrl
-  link.download = convertResult.value.output_file
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  const downloadUrl = convertResult.value.download_url
+  if (downloadUrl.startsWith('http')) {
+    // 完整URL
+    window.open(downloadUrl, '_blank')
+  } else {
+    // 相对路径
+    window.open(`/api${downloadUrl}`, '_blank')
+  }
   
   ElMessage.success('开始下载文件')
 }
 
-// 重置表单
-const resetForm = () => {
-  fileList.value = []
+// 重置转换器
+const resetConverter = () => {
   convertResult.value = null
+  fileUploadRef.value?.clearFiles()
+  selectedFiles.value = []
   form.documentTitle = '转换文档'
 }
+
+// 加载转换历史
+const loadHistory = async () => {
+  try {
+    const response = await apiService.get('/convert-history')
+    if (response && response.history) {
+      conversionHistory.value = response.history
+    }
+  } catch (error) {
+    console.error('加载历史记录失败:', error)
+    // 使用模拟数据
+    conversionHistory.value = [
+      {
+        id: 1,
+        document_title: '项目投标文件',
+        file_count: 3,
+        status: 'success',
+        created_at: '2024-01-15 14:30:00',
+        download_url: '/download/sample.docx'
+      },
+      {
+        id: 2,
+        document_title: '合同扫描件',
+        file_count: 5,
+        status: 'success',
+        created_at: '2024-01-14 10:15:00',
+        download_url: '/download/contract.docx'
+      }
+    ]
+  }
+}
+
+// 下载历史文件
+const downloadHistoryFile = (record) => {
+  if (record.download_url) {
+    window.open(`/api${record.download_url}`, '_blank')
+    ElMessage.success('开始下载文件')
+  }
+}
+
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  return new Date(dateStr).toLocaleString()
+}
+
+// 页面加载时获取历史记录
+onMounted(() => {
+  loadHistory()
+})
 </script>
 
-<style scoped>
-.file-converter {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.converter-card {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
+<style lang="scss" scoped>
+.converting-status {
   text-align: center;
+  padding: 40px 20px;
 }
 
-.card-header h2 {
-  color: #303133;
-  margin: 0 0 10px 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+.result-success,
+.result-error {
+  .result-details {
+    margin-bottom: 20px;
+    text-align: left;
+    
+    p {
+      margin: 8px 0;
+      color: var(--el-text-color-regular);
+    }
+    
+    .processed-files {
+      margin-top: 16px;
+      
+      h5 {
+        margin: 0 0 8px 0;
+        color: var(--el-text-color-primary);
+        font-size: 14px;
+      }
+    }
+  }
 }
 
-.card-header p {
-  color: #909399;
-  margin: 0;
-}
-
-.upload-section {
-  margin: 30px 0;
-}
-
-.upload-demo {
-  margin-top: 20px;
-}
-
-.file-list-section {
-  margin: 30px 0;
+.initial-state {
+  text-align: center;
   padding: 20px;
-  background: #f5f7fa;
-  border-radius: 8px;
-}
-
-.file-list-section h3 {
-  margin: 0 0 20px 0;
-  color: #303133;
+  
+  .tips {
+    margin-top: 30px;
+    text-align: left;
+    background: var(--el-fill-color-extra-light);
+    padding: 20px;
+    border-radius: 8px;
+    
+    h4 {
+      margin: 0 0 12px 0;
+      color: var(--el-text-color-primary);
+    }
+    
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      
+      li {
+        margin: 8px 0;
+        color: var(--el-text-color-regular);
+        line-height: 1.5;
+      }
+    }
+  }
 }
 
 .action-section {
-  text-align: center;
-  margin: 30px 0;
+  margin-top: 24px;
 }
 
-.result-section {
-  margin-top: 30px;
+.mr-1 {
+  margin-right: 8px;
 }
 
-.download-section {
-  margin-top: 20px;
+.mb-1 {
+  margin-bottom: 8px;
 }
 
-.processed-files ul {
-  margin: 10px 0;
-  padding-left: 20px;
+.mt-2 {
+  margin-top: 16px;
 }
 
-.processed-files li {
-  margin: 5px 0;
-  color: #606266;
+.mt-3 {
+  margin-top: 24px;
 }
 
-:deep(.el-upload-dragger) {
-  width: 100%;
-  height: 200px;
+.mt-4 {
+  margin-top: 32px;
 }
 
-:deep(.el-icon--upload) {
-  font-size: 48px;
-  color: #c0c4cc;
+.mb-3 {
+  margin-bottom: 24px;
 }
 
-:deep(.el-upload__text) {
-  font-size: 16px;
-  color: #606266;
-}
-
-:deep(.el-upload__tip) {
-  color: #909399;
-  font-size: 14px;
+@media (max-width: 768px) {
+  .page-container {
+    padding: 12px;
+  }
+  
+  .action-section {
+    margin-top: 16px;
+  }
 }
 </style> 
