@@ -5,6 +5,7 @@
       <el-aside width="250px" class="app-aside">
         <div class="logo">
           <h2>{{ appName }}</h2>
+          <div class="subtitle">{{ appSubtitle }}</div>
         </div>
         
         <el-menu
@@ -125,8 +126,8 @@ const processingTasks = ref(0)
 const globalLoading = computed(() => appStore.loading)
 const loadingText = computed(() => appStore.loadingText)
 
-// 获取应用名称
-const appName = ref(import.meta.env.VITE_APP_NAME || '投标苦')
+const appName = ref('投标苦')
+const appSubtitle = ref('法律人的投标自救工具')
 
 // 判断是否生产环境
 const isProduction = import.meta.env.VITE_PRODUCTION === 'true'
@@ -138,6 +139,7 @@ const loadAppInfo = async () => {
     if (response.ok) {
       const appInfo = await response.json()
       appName.value = appInfo.app_name
+      appSubtitle.value = appInfo.app_subtitle
     }
   } catch (error) {
     console.warn('无法获取应用信息，使用默认名称')
@@ -149,6 +151,9 @@ onMounted(() => {
   appStore.initApp()
   // 加载应用信息
   loadAppInfo()
+  // 支持后续动态变更
+  window.__setAppName = (v) => appName.value = v
+  window.__setAppSubtitle = (v) => appSubtitle.value = v
 })
 </script>
 
@@ -172,6 +177,12 @@ onMounted(() => {
     color: var(--el-text-color-primary);
     font-size: 18px;
     font-weight: 600;
+  }
+  .subtitle {
+    color: #888;
+    font-size: 13px;
+    margin-top: 4px;
+    letter-spacing: 1px;
   }
 }
 

@@ -1,8 +1,8 @@
-FROM registry.cn-hangzhou.aliyuncs.com/acs/python:3.13-slim
+FROM hub.kingschats.com/python:3.13-slim
 
-# 配置阿里云apt源
-RUN sed -i 's@deb.debian.org@mirrors.aliyun.com@g' /etc/apt/sources.list && \
-    sed -i 's@security.debian.org@mirrors.aliyun.com@g' /etc/apt/sources.list
+# 配置阿里云apt源（递归替换所有apt源文件）
+RUN find /etc/apt/ -type f -exec sed -i 's@deb.debian.org@mirrors.aliyun.com@g' {} + && \
+    find /etc/apt/ -type f -exec sed -i 's@security.debian.org@mirrors.aliyun.com@g' {} +
 
 # 配置pip清华源
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \

@@ -124,6 +124,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_APP_FAVICON: ${VITE_APP_FAVICON:-/favicon.ico}
+        VITE_APP_SUBTITLE: ${VITE_APP_SUBTITLE:-法律人的投标自救工具}
     ports:
       - "5555:3000"
     depends_on:
