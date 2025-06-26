@@ -1,9 +1,9 @@
 # 构建阶段
-FROM hub.kingschats.com/node:18-alpine AS build-stage
+FROM registry.cn-hangzhou.aliyuncs.com/acs/node:18-alpine AS build-stage
 
 WORKDIR /app
 
-# 配置npm国内镜像源
+# 配置npm阿里云镜像源
 RUN npm config set registry https://registry.npmmirror.com/
 
 # 复制package文件
@@ -19,7 +19,7 @@ COPY . .
 RUN npm run build
 
 # 生产阶段
-FROM hub.kingschats.com/nginx:alpine AS production-stage
+FROM registry.cn-hangzhou.aliyuncs.com/acs/nginx:alpine AS production-stage
 
 # 复制构建产物到nginx
 COPY --from=build-stage /app/dist /usr/share/nginx/html
