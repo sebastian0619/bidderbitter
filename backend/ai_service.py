@@ -3,7 +3,7 @@ import json
 import time
 import base64
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any, Callable
 from datetime import datetime
 import openai
 import pytesseract
@@ -531,6 +531,214 @@ class AIService:
             "confidence": 0.5,
             "raw_text": response
         }
+
+    async def chat_with_tools(
+        self, 
+        user_message: str, 
+        system_prompt: str = "",
+        tools: List[Dict[str, Any]] = None,
+        tool_executor: Callable = None,
+        max_tokens: int = 2000
+    ) -> Dict[str, Any]:
+        """支持工具调用的AI对话"""
+        try:
+            if not self.enable_ai or not self.ai_client:
+                return {
+                    "success": False,
+                    "error": "AI服务未启用或未初始化"
+                }
+            
+            # 构建消息历史
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            
+            messages.append({"role": "user", "content": user_message})
+            
+            # 构建工具定义
+            tool_definitions = []
+            if tools:
+                for tool in tools:
+                    tool_definitions.append({
+                        "type": "function",
+                        "function": {
+                            "name": tool["name"],
+                            "description": tool["description"],
+                            "parameters": {
+                                "type": "object",
+                                "properties": tool["parameters"],
+                                "required": [k for k, v in tool["parameters"].items() if "default" not in v]
+                            }
+                        }
+                    })
+            
+            # 调用AI API
+            response = await self._call_ai_api_with_tools(
+                messages=messages,
+                tools=tool_definitions,
+                max_tokens=max_tokens
+            )
+            
+            # 处理工具调用
+            tools_used = []
+            if response.get("choices") and response["choices"][0].get("message", {}).get("tool_calls"):
+                tool_calls = response["choices"][0]["message"]["tool_calls"]
+                
+                for tool_call in tool_calls:
+                    tool_name = tool_call["function"]["name"]
+                    tool_args = json.loads(tool_call["function"]["arguments"])
+                    
+                    # 执行工具
+                    if tool_executor:
+                        try:
+                            tool_result = await tool_executor(tool_name, tool_args)
+                            tools_used.append({
+                                "tool_name": tool_name,
+                                "arguments": tool_args,
+                                "result": tool_result
+                            })
+                        except Exception as e:
+                            logger.error(f"工具执行失败 {tool_name}: {str(e)}")
+                            tools_used.append({
+                                "tool_name": tool_name,
+                                "arguments": tool_args,
+                                "error": str(e)
+                            })
+            
+            # 如果有工具调用结果，再次调用AI进行总结
+            if tools_used:
+                # 构建包含工具结果的用户消息
+                tool_results_message = f"""
+用户问题：{user_message}
+
+已执行的工具和结果：
+{json.dumps(tools_used, ensure_ascii=False, indent=2)}
+
+请根据工具执行结果，为用户提供完整的回答。
+"""
+                
+                messages.append({"role": "user", "content": tool_results_message})
+                
+                # 再次调用AI
+                final_response = await self._call_ai_api_with_tools(
+                    messages=messages,
+                    tools=[],  # 不再需要工具调用
+                    max_tokens=max_tokens
+                )
+                
+                return {
+                    "success": True,
+                    "response": final_response["choices"][0]["message"]["content"],
+                    "tools_used": tools_used,
+                    "raw_response": final_response
+                }
+            else:
+                return {
+                    "success": True,
+                    "response": response["choices"][0]["message"]["content"],
+                    "tools_used": [],
+                    "raw_response": response
+                }
+                
+        except Exception as e:
+            logger.error(f"AI工具对话失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def analyze_text(self, prompt: str, max_tokens: int = 2000) -> Dict[str, Any]:
+        """分析文本内容"""
+        try:
+            if not self.enable_ai or not self.ai_client:
+                return {
+                    "success": False,
+                    "error": "AI服务未启用或未初始化"
+                }
+            
+            messages = [
+                {"role": "system", "content": "你是一个专业的法律文档分析助手，请根据用户的要求分析文档内容。"},
+                {"role": "user", "content": prompt}
+            ]
+            
+            response = await self._call_ai_api_with_tools(
+                messages=messages,
+                tools=[],
+                max_tokens=max_tokens
+            )
+            
+            return {
+                "success": True,
+                "analysis": response["choices"][0]["message"]["content"],
+                "raw_response": response
+            }
+            
+        except Exception as e:
+            logger.error(f"文本分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _call_ai_api_with_tools(
+        self, 
+        messages: List[Dict[str, Any]], 
+        tools: List[Dict[str, Any]] = None,
+        max_tokens: int = 2000
+    ) -> Dict[str, Any]:
+        """调用支持工具的AI API"""
+        try:
+            if self.ai_provider == "openai":
+                kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7
+                }
+                
+                if tools:
+                    kwargs["tools"] = tools
+                    kwargs["tool_choice"] = "auto"
+                
+                response = self.ai_client.chat.completions.create(**kwargs)
+                return response.model_dump()
+                
+            elif self.ai_provider == "azure":
+                kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7
+                }
+                
+                if tools:
+                    kwargs["tools"] = tools
+                    kwargs["tool_choice"] = "auto"
+                
+                response = self.ai_client.chat.completions.create(**kwargs)
+                return response.model_dump()
+                
+            elif self.ai_provider == "custom":
+                kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": 0.7
+                }
+                
+                if tools:
+                    kwargs["tools"] = tools
+                    kwargs["tool_choice"] = "auto"
+                
+                response = self.ai_client.chat.completions.create(**kwargs)
+                return response.model_dump()
+                
+            else:
+                raise ValueError(f"不支持的AI提供商: {self.ai_provider}")
+                
+        except Exception as e:
+            logger.error(f"AI API调用失败: {str(e)}")
+            raise e
 
 # 创建全局AI服务实例
 ai_service = AIService() 

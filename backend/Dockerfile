@@ -45,5 +45,5 @@ RUN mkdir -p uploads screenshots logs
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 
+# 启动命令 - 生产模式，不使用reload避免处理过程中重启
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 

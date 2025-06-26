@@ -23,24 +23,191 @@
                   placeholder="请输入生成的Word文档标题"
                 />
               </el-form-item>
+              
+              <el-form-item label="主标题设置">
+                <el-row :gutter="12">
+                  <el-col :span="12">
+                    <el-switch 
+                      v-model="form.showMainTitle" 
+                      active-text="显示主标题"
+                      inactive-text="隐藏主标题"
+                    />
+                  </el-col>
+                  <el-col :span="12" v-if="form.showMainTitle">
+                    <el-select v-model="form.mainTitleLevel" placeholder="主标题层级" size="small">
+                      <el-option label="标题1" :value="1" />
+                      <el-option label="标题2" :value="2" />
+                      <el-option label="标题3" :value="3" />
+                      <el-option label="标题4" :value="4" />
+                      <el-option label="标题5" :value="5" />
+                      <el-option label="标题6" :value="6" />
+                    </el-select>
+                  </el-col>
+                </el-row>
+              </el-form-item>
+              
+              <el-form-item label="文件标题设置">
+                <el-row :gutter="12">
+                  <el-col :span="12">
+                    <el-switch 
+                      v-model="form.showFileTitles" 
+                      active-text="显示文件名"
+                      inactive-text="隐藏文件名"
+                    />
+                  </el-col>
+                  <el-col :span="12" v-if="form.showFileTitles">
+                    <el-select v-model="form.fileTitleLevel" placeholder="文件标题层级" size="small">
+                      <el-option label="标题1" :value="1" />
+                      <el-option label="标题2" :value="2" />
+                      <el-option label="标题3" :value="3" />
+                      <el-option label="标题4" :value="4" />
+                      <el-option label="标题5" :value="5" />
+                      <el-option label="标题6" :value="6" />
+                    </el-select>
+                  </el-col>
+                </el-row>
+                <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px;">
+                  文件标题将直接显示文件名，不带"来源文件:"前缀
+                </div>
+              </el-form-item>
+              
+              <el-form-item label="添加水印">
+                <el-switch 
+                  v-model="form.enableWatermark" 
+                  active-text="开启"
+                  inactive-text="关闭"
+                />
+              </el-form-item>
+              
+              <!-- 水印配置区域 -->
+              <div v-if="form.enableWatermark" class="watermark-config">
+                <el-form-item label="水印文字">
+                  <el-input 
+                    v-model="form.watermarkText" 
+                    placeholder="请输入水印文字"
+                    clearable
+                  />
+                </el-form-item>
+                
+                <el-row :gutter="12">
+                  <el-col :span="8">
+                    <el-form-item label="字体大小">
+                      <el-input-number
+                        v-model="form.watermarkFontSize"
+                        :min="12"
+                        :max="100"
+                        size="small"
+                        controls-position="right"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <el-form-item label="倾斜角度">
+                      <el-input-number
+                        v-model="form.watermarkAngle"
+                        :min="-90"
+                        :max="90"
+                        size="small"
+                        controls-position="right"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <el-form-item label="透明度">
+                      <el-input-number
+                        v-model="form.watermarkOpacity"
+                        :min="10"
+                        :max="100"
+                        size="small"
+                        controls-position="right"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                
+                <el-row :gutter="12">
+                  <el-col :span="12">
+                    <el-form-item label="水印颜色">
+                      <el-color-picker 
+                        v-model="form.watermarkColor"
+                        size="small"
+                        show-alpha
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="水印位置">
+                      <el-select 
+                        v-model="form.watermarkPosition" 
+                        placeholder="选择位置"
+                        size="small"
+                      >
+                        <el-option label="居中大水印" value="center" />
+                        <el-option label="平铺多处" value="repeat" />
+                        <el-option label="背景样式" value="background" />
+                        <el-option label="左上角" value="top-left" />
+                        <el-option label="右上角" value="top-right" />
+                        <el-option label="左下角" value="bottom-left" />
+                        <el-option label="右下角" value="bottom-right" />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                
+                <el-form-item>
+                  <el-text size="small" type="info">
+                    <el-icon><InfoFilled /></el-icon>
+                    水印将以大号文字形式穿插在文档内容中，清晰可见
+                  </el-text>
+                </el-form-item>
+              </div>
             </el-form>
 
             <FileUpload
               ref="fileUploadRef"
               :allowed-types="['pdf', 'image']"
               :multiple="true"
-              :max-size="50 * 1024 * 1024"
+              :max-size="MAX_UPLOAD_SIZE"
               accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff"
               @upload="handleFilesSelected"
               @change="handleFileChange"
             />
+            
+            <!-- 显示所有待转换的文件 -->
+            <div v-if="allSelectedFiles.length > 0" class="selected-files-summary mt-3">
+              <div class="summary-header">
+                <h4>待转换文件列表 ({{ allSelectedFiles.length }}个)</h4>
+                <el-button size="small" text type="danger" @click="clearAllFiles">
+                  <el-icon><Delete /></el-icon>
+                  清空全部
+                </el-button>
+              </div>
+              <div class="files-preview">
+                <el-tag
+                  v-for="(file, index) in allSelectedFiles"
+                  :key="`selected-${index}`"
+                  size="small"
+                  class="file-tag mr-1 mb-1"
+                  closable
+                  @close="removeSelectedFile(index)"
+                >
+                  {{ index + 1 }}. {{ file.name }}
+                </el-tag>
+              </div>
+              <div class="files-order-hint">
+                <el-text size="small" type="info">
+                  <el-icon><InfoFilled /></el-icon>
+                  文件将按照上述顺序依次处理并拼接到Word文档中
+                </el-text>
+              </div>
+            </div>
 
             <div class="action-section mt-3">
               <el-button 
                 type="primary" 
                 size="large"
                 :loading="converting"
-                :disabled="selectedFiles.length === 0"
+                :disabled="allSelectedFiles.length === 0"
                 @click="convertFiles"
                 style="width: 100%"
               >
@@ -82,8 +249,8 @@
                     <div v-if="convertResult.processed_files?.length" class="processed-files">
                       <h5>处理的文件:</h5>
                       <el-tag
-                        v-for="file in convertResult.processed_files"
-                        :key="file"
+                        v-for="(file, index) in convertResult.processed_files"
+                        :key="`file-${index}`"
                         size="small"
                         class="mr-1 mb-1"
                       >
@@ -133,10 +300,13 @@
                 <h4>使用说明</h4>
                 <ul>
                   <li>支持PDF、JPG、PNG、BMP、GIF、TIFF格式</li>
-                  <li>单个文件最大50MB，最多选择20个文件</li>
+                  <li>单个文件最大{{ MAX_UPLOAD_SIZE_MB }}MB，支持多次上传累积文件</li>
+                  <li>多个PDF将按顺序合并处理，生成统一Word文档</li>
                   <li>PDF文件将转换为图片后插入Word</li>
                   <li>图片文件将直接插入Word文档</li>
-                  <li>文件将按照上传顺序排列</li>
+                  <li>文件将按照添加顺序依次排列在Word中</li>
+                  <li>生成的Word文档为A4纸张大小</li>
+                  <li>可手动设置文档标题，支持水印功能</li>
                 </ul>
               </div>
             </div>
@@ -166,24 +336,48 @@
               {{ formatDate(row.created_at) }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="100">
+          <el-table-column prop="status" label="状态" width="120">
             <template #default="{ row }">
-              <el-tag :type="row.status === 'success' ? 'success' : 'danger'" size="small">
-                {{ row.status === 'success' ? '成功' : '失败' }}
+              <el-tag 
+                :type="getStatusType(row.status)" 
+                size="small"
+              >
+                {{ getStatusText(row.status) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column label="操作" width="150">
             <template #default="{ row }">
-              <el-button
-                v-if="row.status === 'success'"
-                type="primary"
-                size="small"
-                text
-                @click="downloadHistoryFile(row)"
-              >
-                下载
-              </el-button>
+              <div v-if="row.status === 'success' && row.output_file">
+                <el-button
+                  type="primary"
+                  size="small"
+                  text
+                  @click="downloadHistoryFile(row)"
+                >
+                  <el-icon><Download /></el-icon>
+                  下载
+                </el-button>
+              </div>
+              <div v-else-if="row.status !== 'success'">
+                <el-tooltip 
+                  :content="row.error_message || '转换失败'"
+                  placement="top"
+                >
+                  <el-button
+                    type="danger"
+                    size="small"
+                    text
+                    disabled
+                  >
+                    <el-icon><Warning /></el-icon>
+                    查看错误
+                  </el-button>
+                </el-tooltip>
+              </div>
+              <div v-else>
+                <el-text size="small" type="info">无文件</el-text>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -197,9 +391,13 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, DocumentAdd, Download, Clock, Refresh } from '@element-plus/icons-vue'
+import { Document, DocumentAdd, Download, Clock, Refresh, Delete, InfoFilled, Warning } from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
 import FileUpload from '@/components/FileUpload.vue'
+
+// 读取最大上传大小（MB）
+const MAX_UPLOAD_SIZE_MB = Number(import.meta.env.VITE_MAX_UPLOAD_SIZE_MB) || 50
+const MAX_UPLOAD_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 // 响应式数据
 const fileUploadRef = ref()
@@ -207,24 +405,81 @@ const converting = ref(false)
 const convertProgress = ref(0)
 const convertResult = ref(null)
 const selectedFiles = ref([])
+const uploadedFiles = ref([])
+const allSelectedFiles = ref([]) // 累积所有选择的文件
 const conversionHistory = ref([])
 
 const form = reactive({
-  documentTitle: '转换文档'
+  documentTitle: '转换文档',
+  showMainTitle: true,
+  showFileTitles: true,
+  mainTitleLevel: 1,
+  fileTitleLevel: 2,
+  enableWatermark: false,
+  watermarkText: '',
+  watermarkFontSize: 24,
+  watermarkAngle: -45,
+  watermarkOpacity: 30,
+  watermarkColor: '#808080',
+  watermarkPosition: 'center'
 })
 
-// 处理文件选择
-const handleFilesSelected = (files) => {
-  selectedFiles.value = files
+// 根据选择的文件自动设置文档标题
+const updateDocumentTitle = () => {
+  if (allSelectedFiles.value.length > 0) {
+    if (allSelectedFiles.value.length === 1) {
+      // 单个文件，使用文件名
+      const firstFileName = allSelectedFiles.value[0].name
+      const baseName = firstFileName.split('.').slice(0, -1).join('.')
+      form.documentTitle = baseName || '转换文档'
+    } else {
+      // 多个文件，使用合并文档标题
+      form.documentTitle = `合并文档_${allSelectedFiles.value.length}个文件`
+    }
+  } else {
+    form.documentTitle = '转换文档'
+  }
 }
 
-const handleFileChange = (files) => {
-  selectedFiles.value = files
+// 监听FileUpload组件的change事件，累积添加文件
+const handleFilesSelected = (files) => {
+  // 添加新选择的文件到总列表
+  files.forEach(file => {
+    allSelectedFiles.value.push(file)
+  })
+  updateDocumentTitle()
+  
+  // 清空当前上传组件，为下次上传做准备
+  setTimeout(() => {
+    fileUploadRef.value?.clearFiles()
+  }, 100)
+}
+
+const handleFileChange = (fileList) => {
+  // 这个事件主要用于实时更新当前上传组件的显示
+  selectedFiles.value = fileList.map((f, index) => ({ 
+    name: f.name || f.file?.name, 
+    size: f.size || f.file?.size, 
+    id: index 
+  }))
+}
+
+// 移除特定文件
+const removeSelectedFile = (index) => {
+  allSelectedFiles.value.splice(index, 1)
+  updateDocumentTitle()
+}
+
+// 清空所有文件
+const clearAllFiles = () => {
+  allSelectedFiles.value = []
+  fileUploadRef.value?.clearFiles()
+  updateDocumentTitle()
 }
 
 // 转换文件
 const convertFiles = async () => {
-  if (selectedFiles.value.length === 0) {
+  if (allSelectedFiles.value.length === 0) {
     ElMessage.warning('请先选择要转换的文件')
     return
   }
@@ -236,13 +491,30 @@ const convertFiles = async () => {
   try {
     const formData = new FormData()
     
-    // 添加文件
-    selectedFiles.value.forEach(file => {
+    // 添加文件（按顺序）
+    allSelectedFiles.value.forEach(file => {
       formData.append('files', file)
     })
     
     // 添加文档标题
     formData.append('document_title', form.documentTitle)
+    
+    // 添加标题配置选项
+    formData.append('show_main_title', form.showMainTitle)
+    formData.append('show_file_titles', form.showFileTitles)
+    formData.append('main_title_level', form.mainTitleLevel)
+    formData.append('file_title_level', form.fileTitleLevel)
+    
+    // 添加水印参数
+    formData.append('enable_watermark', form.enableWatermark)
+    if (form.enableWatermark && form.watermarkText) {
+      formData.append('watermark_text', form.watermarkText)
+      formData.append('watermark_font_size', form.watermarkFontSize)
+      formData.append('watermark_angle', form.watermarkAngle)
+      formData.append('watermark_opacity', form.watermarkOpacity)
+      formData.append('watermark_color', form.watermarkColor)
+      formData.append('watermark_position', form.watermarkPosition)
+    }
 
     // 模拟进度更新
     const progressInterval = setInterval(() => {
@@ -267,6 +539,7 @@ const convertFiles = async () => {
       // 清空文件列表
       fileUploadRef.value?.clearFiles()
       selectedFiles.value = []
+      allSelectedFiles.value = []
       // 刷新历史记录
       loadHistory()
     } else {
@@ -289,16 +562,10 @@ const convertFiles = async () => {
 // 下载文件
 const downloadFile = () => {
   if (!convertResult.value?.download_url) return
-  
+
   const downloadUrl = convertResult.value.download_url
-  if (downloadUrl.startsWith('http')) {
-    // 完整URL
-    window.open(downloadUrl, '_blank')
-  } else {
-    // 相对路径
-    window.open(`/api${downloadUrl}`, '_blank')
-  }
-  
+  // 直接用后端返回的download_url，不再拼接/api
+  window.open(downloadUrl, '_blank')
   ElMessage.success('开始下载文件')
 }
 
@@ -307,7 +574,19 @@ const resetConverter = () => {
   convertResult.value = null
   fileUploadRef.value?.clearFiles()
   selectedFiles.value = []
+  allSelectedFiles.value = []
   form.documentTitle = '转换文档'
+  form.showMainTitle = true
+  form.showFileTitles = true
+  form.mainTitleLevel = 1
+  form.fileTitleLevel = 2
+  form.enableWatermark = false
+  form.watermarkText = ''
+  form.watermarkFontSize = 24
+  form.watermarkAngle = -45
+  form.watermarkOpacity = 30
+  form.watermarkColor = '#808080'
+  form.watermarkPosition = 'center'
 }
 
 // 加载转换历史
@@ -343,9 +622,44 @@ const loadHistory = async () => {
 
 // 下载历史文件
 const downloadHistoryFile = (record) => {
-  if (record.download_url) {
+  if (record.output_file) {
+    // 使用output_file字段构造下载URL
+    window.open(`/api/download/${record.output_file}`, '_blank')
+    ElMessage.success('开始下载文件')
+  } else if (record.download_url) {
+    // 兼容旧格式
     window.open(`/api${record.download_url}`, '_blank')
     ElMessage.success('开始下载文件')
+  } else {
+    ElMessage.error('文件不存在或已被删除')
+  }
+}
+
+// 获取状态类型
+const getStatusType = (status) => {
+  switch (status) {
+    case 'success':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    case 'error':
+      return 'danger'
+    default:
+      return 'info'
+  }
+}
+
+// 获取状态文本
+const getStatusText = (status) => {
+  switch (status) {
+    case 'success':
+      return '成功'
+    case 'failed':
+      return '失败'
+    case 'error':
+      return '错误'
+    default:
+      return '未知'
   }
 }
 
@@ -447,6 +761,67 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 
+// 选中文件摘要样式
+.selected-files-summary {
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--el-fill-color-extra-light);
+  
+  .summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    
+    h4 {
+      margin: 0;
+      color: var(--el-text-color-primary);
+      font-size: 14px;
+    }
+  }
+  
+  .files-preview {
+    margin-bottom: 12px;
+  }
+  
+  .file-tag {
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .files-order-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+}
+
+// 水印配置样式
+.watermark-config {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  padding: 16px;
+  background: var(--el-fill-color-extra-light);
+  margin-top: 8px;
+  
+  .el-form-item {
+    margin-bottom: 16px;
+    
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+  
+  .el-row {
+    .el-form-item {
+      margin-bottom: 12px;
+    }
+  }
+}
+
 @media (max-width: 768px) {
   .page-container {
     padding: 12px;
@@ -454,6 +829,14 @@ onMounted(() => {
   
   .action-section {
     margin-top: 16px;
+  }
+  
+  .selected-files-summary {
+    .summary-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
   }
 }
 </style> 

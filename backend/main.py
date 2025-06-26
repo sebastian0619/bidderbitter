@@ -9,25 +9,42 @@ import sys
 import shutil
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image
+from sqlalchemy import desc
+import pytz
 
 # 添加当前目录到sys.path以确保模块可以被导入
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import get_db, init_db
+from database import get_db, init_db, SessionLocal, engine
 from models import *
 from ai_service import ai_service
 from screenshot_service import screenshot_service
 from document_generator import document_generator
 import schemas
+from schemas import (
+    Award as AwardSchema, AwardCreate, AwardResponse,
+    Performance as PerformanceSchema, PerformanceCreate, PerformanceResponse,
+    Project as ProjectSchema, ProjectCreate, ProjectResponse,
+    SystemSettingsResponse, BrandResponse, BusinessFieldResponse, BaseResponse
+)
+
+# 导入水印引擎
+from watermark_engine import WatermarkEngine, WatermarkConfig, apply_watermark_to_document
 
 # 导入新的API模块（确保它们存在于同一目录下）
 try:
     import project_api
     import template_api
+    import section_api
+    import search_api
+    import ai_tools_api
+    from document_processor import docling_processor
     IMPORT_SUCCESS = True
 except ImportError as e:
     logging.error(f"导入API模块失败: {str(e)}")
@@ -38,8 +55,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 创建FastAPI应用
+APP_NAME = os.getenv("APP_NAME", "投标苦")
 app = FastAPI(
-    title="投标文件生成系统",
+    title=APP_NAME,
     description="法律行业投标资料管理和生成系统，包括投标文件自动组装功能",
     version="1.0.0"
 )
@@ -63,6 +81,59 @@ os.makedirs("/app/uploads", exist_ok=True)
 os.makedirs("/app/screenshots", exist_ok=True)
 os.makedirs("/app/generated_docs", exist_ok=True)
 
+MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', '50'))
+MAX_UPLOAD_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+HISTORY_FILE = "/app/generated_docs/convert_history.json"
+
+def format_heading(doc, text, level=1, center=False):
+    """
+    创建格式化的标题
+    
+    参数:
+    - doc: Document对象
+    - text: 标题文字
+    - level: 标题级别 (0=主标题, 1=一级标题, 2=二级标题)
+    - center: 是否居中
+    
+    返回:
+    - 格式化的标题段落
+    """
+    from docx.oxml.shared import qn
+    
+    # 创建标题
+    heading = doc.add_heading(text, level)
+    
+    # 设置对齐方式
+    if center or level == 0:
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # 设置字体
+    if heading.runs:
+        run = heading.runs[0]
+        
+        # 根据级别设置字体大小
+        if level == 0:
+            run.font.size = Pt(18)
+            run.font.name = '楷体'
+        elif level == 1:
+            run.font.size = Pt(16)
+            run.font.name = '楷体'
+        elif level == 2:
+            run.font.size = Pt(14)
+            run.font.name = '楷体'
+        else:
+            run.font.size = Pt(12)
+            run.font.name = '楷体'
+        
+        run.bold = True
+        
+        # 设置中英文字体
+        run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
+        run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+    
+    return heading
+
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化数据库"""
@@ -73,6 +144,9 @@ async def startup_event():
         # 初始化基础数据
         await init_base_data()
         
+        # 初始化高级功能数据
+        await init_advanced_data()
+        
         # 注册API路由
         if IMPORT_SUCCESS:
             # 注册项目API路由
@@ -82,6 +156,18 @@ async def startup_event():
             # 注册模板API路由
             template_api.setup_router(app)
             logger.info("模板API路由注册成功")
+            
+            # 注册智能章节管理API路由
+            app.include_router(section_api.router)
+            logger.info("智能章节管理API路由注册成功")
+            
+            # 注册AI自动检索API路由
+            app.include_router(search_api.router)
+            logger.info("AI自动检索API路由注册成功")
+            
+            # 注册AI工具API路由
+            app.include_router(ai_tools_api.router)
+            logger.info("AI工具API路由注册成功")
         else:
             logger.error("API路由注册失败，模块导入错误")
         
@@ -89,117 +175,74 @@ async def startup_event():
         logger.error(f"应用启动失败: {str(e)}")
 
 async def init_base_data():
-    """初始化基础数据"""
+    """初始化基础数据，如厂牌、业务领域等"""
+    db = SessionLocal()
     try:
-        db = next(get_db())
-        
-        # 初始化系统设置
-        await init_default_settings(db)
-        
-        # 初始化厂牌数据
-        brands = [
-            # 国际知名法律评级机构
-            {"name": "Chambers", "full_name": "Chambers and Partners", "website": "https://chambers.com", "description": "全球权威法律评级机构"},
-            {"name": "Legal 500", "full_name": "The Legal 500", "website": "https://www.legal500.com", "description": "国际领先的法律目录"},
-            {"name": "IFLR", "full_name": "International Financial Law Review", "website": "https://www.iflr.com", "description": "国际金融法律评级"},
-            {"name": "Who's Who Legal", "full_name": "Who's Who Legal", "website": "https://whoswholegal.com", "description": "全球律师指南"},
-            {"name": "Best Lawyers", "full_name": "Best Lawyers", "website": "https://www.bestlawyers.com", "description": "美国最佳律师评级"},
+        # 检查是否已有厂牌数据
+        if db.query(Brand).count() == 0:
+            default_brands = [
+                Brand(name="品牌A", full_name="品牌A全称", website="http://example.com/a"),
+                Brand(name="品牌B", full_name="品牌B全称", website="http://example.com/b"),
+                Brand(name="品牌C", full_name="品牌C全称", website="http://example.com/c", is_active=False),
+                Brand(name="通用", full_name="通用/其他", website=""),
+            ]
+            db.add_all(default_brands)
+            logger.info(f"已初始化 {len(default_brands)} 个默认厂牌")
+
+        # 检查是否已有业务领域数据
+        if db.query(BusinessField).count() == 0:
+            default_fields = [
+                BusinessField(name="领域X", description="业务领域X的描述"),
+                BusinessField(name="领域Y", description="业务领域Y的描述"),
+                BusinessField(name="领域Z", description="业务领域Z的描述"),
+            ]
+            db.add_all(default_fields)
+            logger.info(f"已初始化 {len(default_fields)} 个默认业务领域")
+
+        # 检查是否已有奖项数据
+        if db.query(Award).count() == 0:
+            default_awards = [
+                Award(title="年度最佳法律顾问奖", brand="品牌A", year=2023, business_type="领域X", description="在公司并购领域表现卓越。", is_verified=True),
+                Award(title="金融科技创新奖", brand="品牌B", year=2024, business_type="领域Y", description="为金融科技行业带来革命性创新。", is_verified=False),
+            ]
+            db.add_all(default_awards)
+            logger.info(f"已初始化 {len(default_awards)} 个默认奖项")
+
+        # 检查是否已有业绩数据
+        if db.query(Performance).count() == 0:
+            default_performances = [
+                Performance(client_name="大型科技公司", project_name="Alpha项目-跨国并购案", project_type="并购重组", business_field="领域X", year=2023, contract_amount=1000000, description="一个复杂的跨国并购项目。"),
+                Performance(client_name="初创金融公司", project_name="Beta项目-支付系统合规审查", project_type="合规与监管", business_field="领域Y", year=2024, contract_amount=500000, description="确保其支付系统符合所有相关法规。"),
+            ]
+            db.add_all(default_performances)
+            logger.info(f"已初始化 {len(default_performances)} 个默认业绩")
             
-            # 亚太地区法律评级机构
-            {"name": "ALB", "full_name": "Asian Legal Business", "website": "https://www.legalbusinessonline.com", "description": "亚洲法律商业杂志"},
-            {"name": "Legal Band", "full_name": "Legal Band", "website": "https://legalband.com", "description": "中国法律评级机构"},
-            {"name": "Asialaw", "full_name": "Asialaw Profiles", "website": "https://asialaw.com", "description": "亚洲法律评级"},
-            {"name": "China Law & Practice", "full_name": "China Law & Practice", "website": "https://www.chinalawandpractice.com", "description": "中国法律实务"},
-            {"name": "LEGALWEEK", "full_name": "LEGALWEEK", "website": "https://www.legalweek.com", "description": "法律周刊评级"},
-            
-            # 专业领域评级机构
-            {"name": "IAM", "full_name": "Intellectual Asset Management", "website": "https://www.iam-media.com", "description": "知识产权领域专业评级"},
-            {"name": "PLC Which Lawyer", "full_name": "PLC Which Lawyer", "website": "https://www.legal500.com", "description": "专业法律指南"},
-            {"name": "Global Arbitration Review", "full_name": "Global Arbitration Review", "website": "https://globalarbitrationreview.com", "description": "国际仲裁评级"},
-            {"name": "Global Competition Review", "full_name": "Global Competition Review", "website": "https://globalcompetitionreview.com", "description": "全球竞争法评级"},
-            {"name": "IFLR1000", "full_name": "IFLR1000", "website": "https://www.iflr1000.com", "description": "金融法律评级"},
-            
-            # 其他重要评级
-            {"name": "Benchmark Litigation", "full_name": "Benchmark Litigation", "website": "https://www.benchmarklitigation.com", "description": "诉讼律师评级"},
-            {"name": "China Business Law Journal", "full_name": "China Business Law Journal", "website": "https://www.cblj.com", "description": "中国商法杂志"},
-            {"name": "Korea Law", "full_name": "Korea Law", "website": "https://www.korealaw.com", "description": "韩国法律评级"},
-            {"name": "Japan Law", "full_name": "Japan Law", "website": "https://www.japanlaw.com", "description": "日本法律评级"}
-        ]
-        
-        for brand_data in brands:
-            existing = db.query(Brand).filter(Brand.name == brand_data["name"]).first()
-            if not existing:
-                brand = Brand(**brand_data)
-                db.add(brand)
-        
-        # 初始化业务领域数据 - 移除重复的"金融科技"
-        business_fields = [
-            # 公司法律服务
-            "公司业务", "并购重组", "外商投资", "私募股权/风险投资", "公司治理",
-            "合规与监管", "反垄断与竞争法", "数据保护与隐私", "公司重组与破产",
-            
-            # 金融法律服务
-            "银行与金融", "资本市场", "债券发行", "资产证券化", "基金与资产管理",
-            "保险法", "融资租赁", "金融科技", "绿色金融", "REITs",
-            
-            # 争议解决
-            "争议解决", "国际仲裁", "商事仲裁", "诉讼代理", "调解服务",
-            "执行与保全", "跨境争议", "建设工程争议", "金融争议",
-            
-            # 专业法律领域
-            "知识产权", "专利申请与保护", "商标注册与维权", "版权保护", "商业秘密",
-            "反不正当竞争", "娱乐法", "体育法", "网络法", "电子商务法",
-            
-            # 基础设施与能源
-            "建设工程", "基础设施", "能源法", "石油天然气", "电力法",
-            "新能源", "环境法", "碳中和与ESG", "矿业法",
-            
-            # 房地产与土地
-            "房地产", "土地使用权", "房地产开发", "房地产投资", "物业管理",
-            "城市更新", "特色小镇", "产业园区",
-            
-            # 国际贸易与海事
-            "国际贸易", "海关与贸易合规", "反倾销与反补贴", "自贸区业务",
-            "航运海事", "船舶金融", "货物运输", "海事保险", "港口法务",
-            
-            # 劳动与社会保障
-            "劳动法", "劳动争议", "人力资源", "社会保险", "工伤赔偿",
-            "劳动合规", "外籍员工", "高管激励",
-            
-            # 税务与财务
-            "税法", "税务争议", "税务筹划", "国际税务", "转让定价",
-            "关税与进出口税", "增值税", "企业所得税", "个人所得税",
-            
-            # 新兴业务领域
-            "医疗健康", "生物医药", "医疗器械", "互联网", "人工智能",
-            "区块链", "虚拟货币", "游戏法", "教育法", "食品药品",
-            
-            # 政府与公共事务
-            "政府法律顾问", "PPP项目", "政府采购", "行政法", "刑事辩护",
-            "反腐败与职务犯罪", "监察法", "国家安全法",
-            
-            # 跨境业务
-            "跨境投资", "境外上市", "QFII/QDII", "外汇管理", "国际制裁",
-            "一带一路", "中美贸易", "跨境数据传输", "跨境电商",
-            
-            # 特殊行业
-            "航空航天", "汽车制造", "化工医药", "电信通信", "传媒娱乐",
-            "新零售", "供应链金融", "农业法", "旅游法"
-        ]
-        
-        for field_name in business_fields:
-            existing = db.query(BusinessField).filter(BusinessField.name == field_name).first()
-            if not existing:
-                field = BusinessField(name=field_name)
-                db.add(field)
-        
         db.commit()
-        logger.info("基础数据初始化完成")
-        
     except Exception as e:
         logger.error(f"基础数据初始化失败: {str(e)}")
+        db.rollback()
     finally:
         db.close()
+
+async def init_advanced_data():
+    """初始化高级功能数据"""
+    try:
+        # 导入高级功能初始化模块
+        from init_advanced_data import (
+            init_section_types, init_data_sources, init_recommendation_rules,
+            init_advanced_brands, init_advanced_business_fields
+        )
+        
+        # 执行高级功能初始化
+        init_section_types()
+        init_data_sources()
+        init_recommendation_rules()
+        init_advanced_brands()
+        init_advanced_business_fields()
+        
+        logger.info("高级功能数据初始化完成")
+    except Exception as e:
+        logger.error(f"高级功能数据初始化失败: {str(e)}")
 
 # ==================== 文件上传和处理 ====================
 
@@ -434,8 +477,8 @@ async def create_performance(performance_data: Dict[str, Any], db: Session = Dep
         logger.error(f"创建业绩记录失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/performances")
-async def get_performances(
+@app.get("/api/performances", response_model=PerformanceResponse)
+def get_performances(
     business_field: Optional[str] = Query(None),
     project_type: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
@@ -444,47 +487,39 @@ async def get_performances(
     limit: int = Query(100),
     db: Session = Depends(get_db)
 ):
-    """获取业绩记录列表"""
+    """获取业绩数据列表"""
     try:
         query = db.query(Performance)
-        
+
         if business_field:
             query = query.filter(Performance.business_field == business_field)
+
         if project_type:
             query = query.filter(Performance.project_type == project_type)
+
         if year:
             query = query.filter(Performance.year == year)
+
         if verified_only:
             query = query.filter(Performance.is_verified == True)
-        
-        total = query.count()
+
+        # 按更新时间降序排列
+        query = query.order_by(desc(Performance.updated_at))
+
         performances = query.offset(skip).limit(limit).all()
         
+        # 将SQLAlchemy模型转换为Pydantic模型
+        performance_schemas = [PerformanceSchema.from_orm(p) for p in performances]
+
         return {
             "success": True,
-            "total": total,
-            "performances": [
-                {
-                    "id": perf.id,
-                    "client_name": perf.client_name,
-                    "project_name": perf.project_name,
-                    "project_type": perf.project_type,
-                    "business_field": perf.business_field,
-                    "year": perf.year,
-                    "contract_amount": perf.contract_amount,
-                    "currency": perf.currency,
-                    "description": perf.description,
-                    "is_verified": perf.is_verified,
-                    "confidence_score": perf.confidence_score,
-                    "created_at": perf.created_at.isoformat()
-                }
-                for perf in performances
-            ]
+            "message": "业绩数据获取成功",
+            "performances": performance_schemas
         }
-        
+
     except Exception as e:
-        logger.error(f"获取业绩记录失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"获取业绩数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取业绩数据失败: {str(e)}")
 
 # ==================== 文档生成 ====================
 
@@ -576,16 +611,25 @@ async def generate_document(
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):
     """下载生成的文档"""
-    filepath = os.path.join("/app/generated_docs", filename)
+    # 先在 generated_docs 目录查找（生成的文档）
+    generated_filepath = os.path.join("/app/generated_docs", filename)
+    if os.path.exists(generated_filepath):
+        return FileResponse(
+            path=generated_filepath,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
     
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="文件不存在")
+    # 再在 uploads 目录查找（历史遗留文件）
+    uploads_filepath = os.path.join("/app/uploads", filename)
+    if os.path.exists(uploads_filepath):
+        return FileResponse(
+            path=uploads_filepath,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
     
-    return FileResponse(
-        path=filepath,
-        filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+    raise HTTPException(status_code=404, detail="文件不存在")
 
 # ==================== 配置管理 ====================
 
@@ -632,6 +676,16 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "1.0.0"
+    }
+
+@app.get("/api/app-info")
+async def get_app_info():
+    """获取应用信息"""
+    return {
+        "app_name": APP_NAME,
+        "version": "1.0.0",
+        "description": "法律行业投标资料管理和生成系统",
+        "max_upload_size_mb": MAX_UPLOAD_SIZE_MB
     }
 
 # ==================== 系统设置管理 ====================
@@ -830,136 +884,290 @@ async def init_default_settings(db: Session = Depends(get_db)):
 @app.post("/api/convert-to-word")
 async def convert_files_to_word(
     files: List[UploadFile] = File(...),
-    document_title: str = Form(default="转换文档")
+    document_title: str = Form(default="转换文档"),
+    show_main_title: bool = Form(default=True),  # 新增：是否显示主标题
+    show_file_titles: bool = Form(default=True),  # 新增：是否显示每个文档的标题
+    main_title_level: int = Form(default=1),  # 新增：主标题大纲层级
+    file_title_level: int = Form(default=2),  # 新增：文件标题大纲层级
+    enable_watermark: bool = Form(default=False),
+    watermark_text: str = Form(default=""),
+    watermark_font_size: int = Form(default=24),
+    watermark_angle: int = Form(default=-45),
+    watermark_opacity: int = Form(default=30),
+    watermark_color: str = Form(default="#808080"),
+    watermark_position: str = Form(default="center")
 ):
     """
     将上传的PDF和图片文件转换为Word文档
     """
     try:
+        logger.info(f"收到转换请求 - 文档标题: {document_title}, 文件数量: {len(files)}")
+        logger.info(f"标题配置 - 显示主标题: {show_main_title}(层级{main_title_level}), 显示文件标题: {show_file_titles}(层级{file_title_level})")
+        if enable_watermark and watermark_text:
+            logger.info(f"水印配置 - 文字: {watermark_text}, 字体大小: {watermark_font_size}, 角度: {watermark_angle}°, 透明度: {watermark_opacity}%, 颜色: {watermark_color}, 位置: {watermark_position}")
         # 创建临时目录
         temp_dir = "temp_conversions"
         os.makedirs(temp_dir, exist_ok=True)
         
-        # 创建Word文档
-        doc = Document()
-        doc.add_heading(document_title, 0)
-        
-        processed_files = []
-        
+        # 保存上传的文件
+        file_paths = []
         for file in files:
-            # 保存上传的文件
             file_path = os.path.join(temp_dir, file.filename)
+            content = await file.read()
+            if len(content) > MAX_UPLOAD_SIZE:
+                return {"success": False, "message": f"单个文件不能超过{MAX_UPLOAD_SIZE_MB}MB"}
             with open(file_path, "wb") as buffer:
-                content = await file.read()
                 buffer.write(content)
+            file_paths.append(file_path)
+        
+        # 使用Docling处理器转换文件
+        result = await docling_processor.convert_files_to_word(file_paths, document_title)
+        
+        if result["success"]:
+            # 使用用户设置的标题作为文件名
+            sanitized_title = "".join(c for c in document_title if c.isalnum() or c in " -_").strip()
+            if not sanitized_title:
+                sanitized_title = f"转换文档_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            output_filename = f"{sanitized_title}.docx"
+            output_path = os.path.join("/app/generated_docs", output_filename)
             
-            file_ext = os.path.splitext(file.filename)[1].lower()
+            # 创建Word文档并处理文件
+            doc = Document()
             
-            if file_ext == '.pdf':
-                # PDF转图片再插入Word
-                await process_pdf_to_word(doc, file_path, file.filename)
-                processed_files.append(f"PDF: {file.filename}")
-            elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
-                # 图片直接插入Word
-                await process_image_to_word(doc, file_path, file.filename)
-                processed_files.append(f"图片: {file.filename}")
-            else:
-                processed_files.append(f"不支持的格式: {file.filename}")
-        
-        # 保存Word文档
-        output_filename = f"{document_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-        output_path = os.path.join("uploads", output_filename)
-        doc.save(output_path)
-        
-        # 清理临时文件
-        import shutil
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-        
-        return {
-            "success": True,
-            "message": "文件转换完成",
-            "output_file": output_filename,
-            "processed_files": processed_files,
-            "download_url": f"/api/download/{output_filename}"
-        }
+            # 设置页面为A4大小
+            from docx.shared import Inches
+            from docx.enum.section import WD_ORIENTATION
+            section = doc.sections[0]
+            section.page_width = Inches(8.27)  # A4宽度 (210mm)
+            section.page_height = Inches(11.69)  # A4高度 (297mm)
+            section.orientation = WD_ORIENTATION.PORTRAIT  # 纵向
+            section.left_margin = Inches(1.0)  # 1英寸页边距
+            section.right_margin = Inches(1.0)
+            section.top_margin = Inches(1.0)
+            section.bottom_margin = Inches(1.0)
+            
+            # 根据配置决定是否创建主标题
+            if show_main_title:
+                format_heading(doc, document_title, level=main_title_level, center=True)
+            
+            # 创建水印配置
+            watermark_config = {
+                "enabled": enable_watermark,
+                "text": watermark_text,
+                "font_size": watermark_font_size,
+                "angle": watermark_angle,
+                "opacity": watermark_opacity,
+                "color": watermark_color,
+                "position": watermark_position
+            }
+            
+            processed_files = []
+            for file_path in file_paths:
+                filename = os.path.basename(file_path)
+                file_ext = os.path.splitext(filename)[1].lower()
+                
+                if file_ext == '.pdf':
+                    await docling_processor.process_pdf_with_docling(file_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+                    processed_files.append(f"PDF: {filename}")
+                elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
+                    await docling_processor.process_image(file_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+                    processed_files.append(f"图片: {filename}")
+                else:
+                    processed_files.append(f"不支持的格式: {filename}")
+            
+            # 添加水印（如果启用）
+            if enable_watermark and watermark_text:
+                try:
+                    # 创建水印配置对象
+                    watermark_conf = WatermarkConfig(
+                        enable_watermark=enable_watermark,
+                        watermark_text=watermark_text,
+                        watermark_font_size=watermark_font_size,
+                        watermark_rotation=watermark_angle,
+                        watermark_opacity=watermark_opacity / 100.0,  # 转换为0-1范围
+                        watermark_color=watermark_color,
+                        watermark_position=watermark_position
+                    )
+                    
+                    # 应用水印
+                    watermark_success = WatermarkEngine.apply_watermark(doc, watermark_conf)
+                    if watermark_success:
+                        logger.info(f"水印应用成功: {watermark_text}")
+                    else:
+                        logger.warning("水印应用失败，但文档转换继续进行")
+                        
+                except Exception as watermark_err:
+                    logger.error(f"水印应用异常: {watermark_err}")
+                    # 水印失败不影响文档生成
+            
+            # 保存文档
+            doc.save(output_path)
+            
+            # 清理临时文件
+            import shutil
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            
+            # 记录历史
+            china_tz = pytz.timezone('Asia/Shanghai')
+            china_time = datetime.now(china_tz)
+            
+            history_item = {
+                "document_title": document_title,
+                "output_file": output_filename,
+                "file_count": len(file_paths),
+                "created_at": china_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "status": "success",
+                "processed_files": processed_files
+            }
+            try:
+                if os.path.exists(HISTORY_FILE):
+                    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                        history = json.load(f)
+                else:
+                    history = []
+                history.insert(0, history_item)
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(history[:100], f, ensure_ascii=False, indent=2)
+            except Exception as hist_err:
+                logger.error(f"写入转换历史失败: {hist_err}")
+            
+            return {
+                "success": True,
+                "message": "文件转换完成",
+                "output_file": output_filename,
+                "processed_files": processed_files,
+                "download_url": f"/api/download/{output_filename}"
+            }
+        else:
+            # 转换失败，记录失败历史
+            china_tz = pytz.timezone('Asia/Shanghai')
+            china_time = datetime.now(china_tz)
+            
+            history_item = {
+                "document_title": document_title,
+                "output_file": "",
+                "file_count": len(file_paths),
+                "created_at": china_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "status": "failed",
+                "error_message": result.get("message", "未知错误"),
+                "processed_files": [f"失败: {os.path.basename(path)}" for path in file_paths]
+            }
+            try:
+                if os.path.exists(HISTORY_FILE):
+                    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                        history = json.load(f)
+                else:
+                    history = []
+                history.insert(0, history_item)
+                with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(history[:100], f, ensure_ascii=False, indent=2)
+            except Exception as hist_err:
+                logger.error(f"写入失败历史失败: {hist_err}")
+            
+            return result
         
     except Exception as e:
         logger.error(f"文件转换失败: {str(e)}")
+        
+        # 记录异常失败历史
+        try:
+            china_tz = pytz.timezone('Asia/Shanghai')
+            china_time = datetime.now(china_tz)
+            
+            history_item = {
+                "document_title": document_title,
+                "output_file": "",
+                "file_count": len(files),
+                "created_at": china_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "status": "error",
+                "error_message": str(e),
+                "processed_files": [f"错误: {file.filename}" for file in files]
+            }
+            
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            else:
+                history = []
+            history.insert(0, history_item)
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(history[:100], f, ensure_ascii=False, indent=2)
+        except Exception as hist_err:
+            logger.error(f"写入异常历史失败: {hist_err}")
+        
         return {"success": False, "message": f"转换失败: {str(e)}"}
 
-async def process_pdf_to_word(doc, pdf_path, filename):
-    """将PDF转换为图片并插入Word"""
+@app.get("/api/convert-history")
+async def get_convert_history():
     try:
-        import fitz  # PyMuPDF
-        
-        doc.add_heading(f"来源文件: {filename}", level=1)
-        
-        # 打开PDF
-        pdf_document = fitz.open(pdf_path)
-        
-        for page_num in range(len(pdf_document)):
-            page = pdf_document.load_page(page_num)
-            
-            # 将页面转换为图片
-            mat = fitz.Matrix(2.0, 2.0)  # 提高分辨率
-            pix = page.get_pixmap(matrix=mat)
-            
-            # 保存为临时图片
-            temp_image_path = f"temp_page_{page_num + 1}.png"
-            pix.save(temp_image_path)
-            
-            # 添加页面标题
-            doc.add_heading(f"第 {page_num + 1} 页", level=2)
-            
-            # 插入图片到Word
-            try:
-                from docx.shared import Inches
-                doc.add_picture(temp_image_path, width=Inches(6))
-                doc.add_page_break()
-            except Exception as e:
-                doc.add_paragraph(f"图片插入失败: {str(e)}")
-            
-            # 删除临时图片
-            if os.path.exists(temp_image_path):
-                os.remove(temp_image_path)
-        
-        pdf_document.close()
-        
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        else:
+            history = []
+        return {"success": True, "history": history}
     except Exception as e:
-        doc.add_paragraph(f"PDF处理失败 ({filename}): {str(e)}")
+        return {"success": False, "message": f"读取历史失败: {str(e)}"}
 
-async def process_image_to_word(doc, image_path, filename):
-    """将图片直接插入Word"""
+# ==================
+# Project API
+# ==================
+@app.post("/api/projects", response_model=BaseResponse)
+def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
     try:
-        from docx.shared import Inches
-        
-        doc.add_heading(f"图片: {filename}", level=1)
-        
-        # 获取图片信息
-        with Image.open(image_path) as img:
-            width, height = img.size
-            doc.add_paragraph(f"尺寸: {width} x {height} 像素")
-        
-        # 插入图片
-        doc.add_picture(image_path, width=Inches(6))
-        doc.add_page_break()
-        
+        db_project = Project(**project.model_dump())
+        db.add(db_project)
+        db.commit()
+        db.refresh(db_project)
+        return {"success": True, "message": "项目创建成功"}
     except Exception as e:
-        doc.add_paragraph(f"图片处理失败 ({filename}): {str(e)}")
+        db.rollback()
+        logger.error(f"创建项目失败: {e}")
+        raise HTTPException(status_code=500, detail="创建项目失败")
 
-@app.get("/api/download/{filename}")
-async def download_file(filename: str):
-    """下载生成的Word文档"""
-    file_path = os.path.join("uploads", filename)
-    if os.path.exists(file_path):
-        return FileResponse(
-            path=file_path,
-            filename=filename,
-            media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        )
-    else:
-        raise HTTPException(status_code=404, detail="文件不存在")
+@app.get("/api/projects", response_model=ProjectResponse)
+def get_projects(db: Session = Depends(get_db)):
+    projects = db.query(Project).order_by(Project.created_at.desc()).all()
+    return {
+        "success": True,
+        "message": "获取项目列表成功",
+        "projects": projects
+    }
+
+def create_tables():
+    try:
+        models.Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        
+        # 检查并初始化SystemSettings表
+        if db.query(models.SystemSettings).count() == 0:
+            default_settings = models.SystemSettings(
+                company_name="默认公司名称",
+                company_address="默认公司地址",
+                contact_person="默认联系人",
+                contact_phone="1234567890",
+                contact_email="default@example.com"
+            )
+            db.add(default_settings)
+            db.commit()
+            logger.info("创建SystemSettings表成功，并插入了默认设置")
+
+        # 检查并初始化基础数据表
+        if db.query(models.Brand).count() == 0 and \
+           db.query(models.BusinessField).count() == 0 and \
+           db.query(models.Award).count() == 0 and \
+           db.query(models.Performance).count() == 0:
+            init_base_data(db)
+            logger.info("初始化基础数据表成功")
+            
+        if db.query(models.Project).count() == 0:
+            logger.info("检测到Project表为空，跳过初始化数据。")
+
+    except Exception as e:
+        logger.error(f"创建表或初始化数据失败: {e}")
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn

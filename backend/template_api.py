@@ -48,7 +48,7 @@ class TemplateResponse(TemplateBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FieldBase(BaseModel):
     field_name: str
@@ -69,7 +69,7 @@ class FieldResponse(FieldBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class MappingCreate(BaseModel):
     template_id: int
@@ -89,7 +89,7 @@ class MappingResponse(BaseModel):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # ============ API端点 ============
 

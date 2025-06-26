@@ -4,7 +4,7 @@
       <!-- 侧边栏 -->
       <el-aside width="250px" class="app-aside">
         <div class="logo">
-          <h2>投标软件系统</h2>
+          <h2>{{ appName }}</h2>
         </div>
         
         <el-menu
@@ -21,6 +21,21 @@
           <el-menu-item index="/projects">
             <el-icon><Folder /></el-icon>
             <span>投标项目管理</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/section-manager">
+            <el-icon><Connection /></el-icon>
+            <span>智能章节管理</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/award-search">
+            <el-icon><Search /></el-icon>
+            <span>AI自动检索奖项</span>
+          </el-menu-item>
+          
+          <el-menu-item index="/ai-assistant">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>AI智能助手</span>
           </el-menu-item>
           
           <el-menu-item index="/templates">
@@ -91,7 +106,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
-import { House, Document, Setting, Folder, Files } from '@element-plus/icons-vue'
+import { House, Document, Setting, Folder, Files, Connection, Search, ChatDotRound } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const appStore = useAppStore()
@@ -106,9 +121,27 @@ const processingTasks = ref(0)
 const globalLoading = computed(() => appStore.loading)
 const loadingText = computed(() => appStore.loadingText)
 
+// 获取应用名称
+const appName = ref(import.meta.env.VITE_APP_NAME || '投标苦')
+
+// 从API获取应用信息
+const loadAppInfo = async () => {
+  try {
+    const response = await fetch('/api/app-info')
+    if (response.ok) {
+      const appInfo = await response.json()
+      appName.value = appInfo.app_name
+    }
+  } catch (error) {
+    console.warn('无法获取应用信息，使用默认名称')
+  }
+}
+
 onMounted(() => {
   // 初始化应用
   appStore.initApp()
+  // 加载应用信息
+  loadAppInfo()
 })
 </script>
 

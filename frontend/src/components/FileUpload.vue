@@ -185,14 +185,17 @@ const handleFiles = (files) => {
     
     validFiles.forEach(file => {
       fileList.value.push({
-        ...file,
+        file: file,  // 保存原始File对象
+        name: file.name,
+        size: file.size,
+        type: file.type,
         uploading: false,
         progress: 0
       })
     })
     
     emit('change', fileList.value)
-    emit('upload', validFiles)
+    emit('upload', validFiles)  // 传递原始File对象数组
   }
 }
 

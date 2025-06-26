@@ -1,10 +1,12 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+const baseURL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8000'
+
 // 创建axios实例
 const api = axios.create({
-  baseURL: '/api',
-  timeout: 8000, // 减少超时时间到8秒
+  baseURL,
+  timeout: 0, // 移除超时限制，允许处理大文件
   headers: {
     'Content-Type': 'application/json'
   }
@@ -321,7 +323,16 @@ export const apiService = {
   // 获取业绩统计
   getAwardStats() {
     return api.get('/stats/awards')
-  }
+  },
+
+  // 通用POST方法
+  post(url, data, config) {
+    return api.post(url, data, config)
+  },
+  // 通用GET方法
+  get(url, config) {
+    return api.get(url, config)
+  },
 }
 
 // 文件上传辅助函数

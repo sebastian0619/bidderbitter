@@ -34,6 +34,30 @@ const routes = [
     }
   },
   {
+    path: '/section-manager',
+    name: 'SectionManager',
+    component: () => import('@/views/SectionManager.vue'),
+    meta: {
+      title: '智能章节管理'
+    }
+  },
+  {
+    path: '/award-search',
+    name: 'AwardSearch',
+    component: () => import('@/views/AwardSearch.vue'),
+    meta: {
+      title: 'AI自动检索奖项'
+    }
+  },
+  {
+    path: '/ai-assistant',
+    name: 'AIAssistant',
+    component: () => import('@/views/AIAssistant.vue'),
+    meta: {
+      title: 'AI智能助手'
+    }
+  },
+  {
     path: '/projects',
     name: 'Projects',
     component: () => import('@/views/projects/ProjectList.vue'),
@@ -68,6 +92,14 @@ const routes = [
       mode: 'edit'
     },
     props: true
+  },
+  {
+    path: '/awards/new',
+    name: 'CreateAward',
+    component: () => import('@/views/awards/AwardForm.vue'),
+    meta: {
+      title: '创建新奖项'
+    }
   },
   {
     path: '/templates',

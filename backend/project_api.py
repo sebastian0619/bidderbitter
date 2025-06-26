@@ -50,7 +50,7 @@ class ProjectResponse(ProjectBase):
     updated_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class SectionBase(BaseModel):
     title: str
@@ -70,7 +70,7 @@ class SectionResponse(SectionBase):
     updated_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DocumentBase(BaseModel):
     original_filename: str
@@ -89,7 +89,7 @@ class DocumentResponse(DocumentBase):
     created_at: datetime
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ReorderItem(BaseModel):
     id: int

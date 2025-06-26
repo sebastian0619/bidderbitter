@@ -1,0 +1,74 @@
+services:
+  # 数据库服务
+  postgres:
+    image: hub.kingschats.com/kingschats/postgres:15-alpine
+    environment:
+      POSTGRES_DB: bidder_db
+      POSTGRES_USER: bidder_user
+      POSTGRES_PASSWORD: bidder_pass
+    # volumes:
+    #   - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - bidder_network
+
+  # Redis缓存服务 (已禁用)
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - bidder_network
+
+  # 后端API服务
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile.podman
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      # - redis
+      # - chrome
+    environment:
+      # 数据库配置 - 切换回Postgres
+      - DATABASE_URL=postgresql://bidder_user:bidder_pass@postgres/bidder_db
+      - REDIS_URL=
+      - ENABLE_SCREENSHOT=false
+      # 保留其他开发配置
+      - APP_ENV=development
+      - LOG_LEVEL=DEBUG
+      - DEBUG=true
+      - SECRET_KEY=dev-secret-key-for-sqlite
+      - CORS_ORIGINS=http://localhost:3000
+    networks:
+      - bidder_network
+
+  # 前端Vite服务 (开发模式)
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile.podman
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - bidder_network
+
+  # Chrome浏览器服务用于网页截图 (已禁用)
+  # chrome:
+  #   image: seleniarm/standalone-chromium:latest
+  #   ports:
+  #     - "4444:4444"
+  #   networks:
+  #     - bidder_network
+
+# volumes:
+#   postgres_data:
+
+networks:
+  bidder_network:
+    driver: bridge 
