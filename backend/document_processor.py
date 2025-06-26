@@ -83,24 +83,83 @@ class DoclingDocumentProcessor:
                 run.font.name = '楷体'
             
             run.bold = True
-            
-            # 设置中英文字体
-            run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-            run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+    
+        # 确保字体颜色是黑色
+        run.font.color.rgb = RGBColor(0, 0, 0)  # 设置为黑色
+        
+        # 设置中英文字体
+        run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
+        run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
         
         return heading
     
-    def _calculate_image_width(self, page_num: int, has_file_title: bool) -> object:
+    def _calculate_image_size_for_page(self, image_path: str, page_num: int, has_file_title: bool, max_height_inches: float = 8.0) -> Tuple[object, bool]:
         """
-        根据页码和是否有文件标题计算合适的图片宽度
+        智能计算图片在页面中的合适大小，检测是否需要分页
         
         参数:
-        - page_num: 页码（0表示第一页或图片文件）
+        - image_path: 图片路径
+        - page_num: 页码（0表示第一页）
         - has_file_title: 是否有文件标题
+        - max_height_inches: 页面最大高度（英寸）
         
         返回:
-        - Inches对象，表示图片宽度
+        - (Inches对象表示宽度, 是否需要分页)
+        """
+        from docx.shared import Inches
+        from PIL import Image
+        
+        try:
+            # A4页面可用宽度约6.5英寸，高度约9英寸（减去页边距）
+            max_width = 6.5
+            available_height = max_height_inches
+            
+            # 根据页面内容预留空间
+            if page_num == 0 and has_file_title:
+                available_height -= 1.5  # 为主标题和文件标题预留空间
+            elif page_num == 0:
+                available_height -= 1.0  # 为主标题预留空间
+            elif has_file_title:
+                available_height -= 0.8  # 为文件标题预留空间
+            
+            # 为页码标题预留空间
+            available_height -= 0.5
+            
+            # 打开图片获取尺寸
+            with Image.open(image_path) as img:
+                img_width, img_height = img.size
+                aspect_ratio = img_height / img_width
+                
+                # 计算按宽度缩放的高度
+                scaled_height = max_width * aspect_ratio
+                
+                # 如果按最大宽度缩放后高度超过可用高度
+                if scaled_height > available_height:
+                    # 按高度缩放
+                    target_width = available_height / aspect_ratio
+                    target_width = min(target_width, max_width)
+                    needs_page_break = scaled_height > available_height * 1.2  # 如果明显超出，建议分页
+                else:
+                    # 使用标准宽度
+                    target_width = max_width * 0.85  # 留一些余量
+                    needs_page_break = False
+                
+                # 确保宽度在合理范围内
+                target_width = max(3.0, min(target_width, max_width))
+                
+                logger.info(f"图片尺寸分析 - 原始: {img_width}x{img_height}, 目标宽度: {target_width:.2f}英寸, 需要分页: {needs_page_break}")
+                
+                return Inches(target_width), needs_page_break
+                
+        except Exception as e:
+            logger.warning(f"图片尺寸分析失败: {e}，使用默认尺寸")
+            # 使用原有的计算方法作为备选
+            return self._calculate_image_width(page_num, has_file_title), False
+    
+    def _calculate_image_width(self, page_num: int, has_file_title: bool) -> object:
+        """
+        根据页码和是否有文件标题计算合适的图片宽度（保留原方法作为备选）
         """
         from docx.shared import Inches
         
@@ -122,40 +181,24 @@ class DoclingDocumentProcessor:
             return Inches(max_width)  # 最大可用宽度
     
     def _create_converter(self):
-        """创建Docling文档转换器"""
+        """创建Docling文档转换器（禁用OCR避免模型下载）"""
         try:
             from docling.document_converter import DocumentConverter
             from docling.datamodel.base_models import InputFormat
             from docling.datamodel.pipeline_options import PdfPipelineOptions
             
-            # 配置PDF处理选项（简化配置）
+            # 创建PDF处理选项，禁用OCR
             pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = True
-            pipeline_options.do_table_structure = True
+            pipeline_options.do_ocr = False  # 禁用OCR避免EasyOCR下载
+            pipeline_options.do_table_structure = False  # 也禁用表格结构识别
             
-            # 尝试设置OCR选项（如果支持）
-            try:
-                if hasattr(pipeline_options, 'ocr_options'):
-                    pipeline_options.ocr_options.lang = ["chi_sim", "eng"]
-                    pipeline_options.ocr_options.use_gpu = False
-            except Exception as ocr_err:
-                logger.warning(f"OCR配置失败: {ocr_err}")
-            
-            # 尝试设置表格选项（如果支持）
-            try:
-                if hasattr(pipeline_options, 'table_structure_options'):
-                    pipeline_options.table_structure_options.do_cell_matching = True
-            except Exception as table_err:
-                logger.warning(f"表格配置失败: {table_err}")
-            
-            # 创建转换器（使用简单配置）
+            # 创建转换器
             converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: pipeline_options
                 }
             )
-            
-            logger.info("Docling转换器创建成功")
+            logger.info("Docling转换器创建成功（已禁用OCR）")
             return converter
             
         except Exception as e:
@@ -163,8 +206,67 @@ class DoclingDocumentProcessor:
             logger.warning("Docling不可用，将使用PyMuPDF作为备选方案")
             return None
     
+    def _add_page_content_with_smart_sizing(self, doc: Document, image_path: str, page_num: int, 
+                                          show_file_titles: bool, watermark_config: Dict[str, Any] = None,
+                                          is_last_page: bool = False):
+        """
+        智能添加页面内容，包括图片尺寸优化和分页控制
+        
+        参数:
+        - doc: Word文档对象
+        - image_path: 图片路径
+        - page_num: 页码
+        - show_file_titles: 是否显示文件标题
+        - watermark_config: 水印配置
+        - is_last_page: 是否是最后一页
+        """
+        try:
+            # 智能计算图片大小
+            image_width, needs_manual_break = self._calculate_image_size_for_page(
+                image_path, page_num, show_file_titles
+            )
+            
+            # 添加页码标题（使用更小的字体）
+            para = doc.add_paragraph()
+            run = para.add_run(f"第 {page_num + 1} 页")
+            run.font.size = Pt(10)  # 小字体
+            run.font.bold = True
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # 插入图片
+            try:
+                doc.add_picture(image_path, width=image_width)
+                logger.info(f"成功插入图片，页码: {page_num + 1}, 宽度: {image_width}")
+            except Exception as img_error:
+                logger.error(f"图片插入失败: {img_error}")
+                doc.add_paragraph(f"图片插入失败: {str(img_error)}")
+            
+            # 智能分页：只在不是最后一页时添加分页符
+            if not is_last_page:
+                doc.add_page_break()
+                logger.debug(f"添加分页符，页码: {page_num + 1}")
+            else:
+                logger.debug(f"跳过分页符（最后一页），页码: {page_num + 1}")
+                
+        except Exception as e:
+            logger.error(f"智能页面内容添加失败: {e}")
+            # 降级到原始方法
+            para = doc.add_paragraph()
+            run = para.add_run(f"第 {page_num + 1} 页")
+            run.font.size = Pt(10)
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            try:
+                image_width = self._calculate_image_width(page_num, show_file_titles)
+                doc.add_picture(image_path, width=image_width)
+                # 只在不是最后一页时添加分页符
+                if not is_last_page:
+                    doc.add_page_break()
+            except Exception as fallback_error:
+                doc.add_paragraph(f"图片处理失败: {str(fallback_error)}")
+    
     async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
-        """使用Docling处理PDF文件"""
+        """使用Docling处理PDF文件 - 充分利用Docling的文档理解能力"""
         try:
             if not self.converter:
                 logger.warning("Docling转换器不可用，使用PyMuPDF备选方案")
@@ -172,69 +274,317 @@ class DoclingDocumentProcessor:
             
             logger.info(f"开始使用Docling处理PDF: {filename}")
             
-            # 使用Docling转换PDF
+            # 使用Docling转换PDF，获取完整的文档结构
             conv_result = self.converter.convert(pdf_path)
+            docling_doc = conv_result.document
             
-            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀）
+            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
-                self._format_heading(doc, filename, level=file_title_level, center=False)
+                filename_without_ext = os.path.splitext(filename)[0]
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
-            # 提取文本内容
-            text_content = conv_result.document.export_to_text()
+            # 提取并添加文档元数据
+            await self._add_document_metadata(doc, docling_doc)
             
-            # 将文本添加到Word文档
-            if text_content.strip():
-                doc.add_paragraph("提取的文本内容:")
-                doc.add_paragraph(text_content)
+            # 按页面处理文档内容
+            await self._process_docling_pages(doc, docling_doc, pdf_path)
             
-            # 如果Docling提取了图片，也添加图片
-            await self._add_images_from_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+            # 提取并添加表格
+            await self._extract_and_add_tables(doc, docling_doc)
+            
+            # 提取并添加图像
+            await self._extract_and_add_figures(doc, docling_doc, pdf_path)
             
             logger.info(f"Docling处理PDF完成: {filename}")
             return {
                 "success": True,
-                "message": "PDF处理成功",
-                "text_extracted": len(text_content.strip()) > 0
+                "message": "PDF处理成功（Docling增强）",
+                "text_extracted": True,
+                "pages_processed": len(docling_doc.pages),
+                "tables_found": len([item for item in docling_doc.main_text if hasattr(item, 'category') and 'table' in str(item.category).lower()]),
+                "figures_found": len([item for item in docling_doc.main_text if hasattr(item, 'category') and 'figure' in str(item.category).lower()])
             }
             
         except Exception as e:
             logger.error(f"Docling处理PDF失败: {e}")
+            # 降级到PyMuPDF
             return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+    
+    async def _add_document_metadata(self, doc: Document, docling_doc):
+        """添加文档元数据信息"""
+        try:
+            # 如果有文档标题，添加提取的标题
+            if hasattr(docling_doc, 'title') and docling_doc.title:
+                heading = doc.add_heading("文档标题", level=3)
+                doc.add_paragraph(docling_doc.title)
+            
+            # 如果有作者信息，添加作者
+            if hasattr(docling_doc, 'authors') and docling_doc.authors:
+                heading = doc.add_heading("文档作者", level=3)
+                doc.add_paragraph(', '.join(docling_doc.authors))
+            
+            # 如果有摘要，添加摘要
+            if hasattr(docling_doc, 'abstract') and docling_doc.abstract:
+                heading = doc.add_heading("文档摘要", level=3)
+                doc.add_paragraph(docling_doc.abstract)
+            
+            # 添加文档统计信息
+            stats_heading = doc.add_heading("文档信息", level=3)
+            stats_para = doc.add_paragraph()
+            stats_para.add_run(f"总页数: {len(docling_doc.pages)} 页\n")
+            
+            # 计算文档元素统计
+            text_elements = 0
+            table_elements = 0
+            figure_elements = 0
+            
+            for item in docling_doc.main_text:
+                if hasattr(item, 'category'):
+                    category_str = str(item.category).lower()
+                    if 'table' in category_str:
+                        table_elements += 1
+                    elif 'figure' in category_str:
+                        figure_elements += 1
+                    else:
+                        text_elements += 1
+            
+            stats_para.add_run(f"文本段落: {text_elements} 个\n")
+            stats_para.add_run(f"表格: {table_elements} 个\n")
+            stats_para.add_run(f"图表: {figure_elements} 个\n")
+            
+        except Exception as e:
+            logger.warning(f"添加文档元数据失败: {e}")
+    
+    async def _process_docling_pages(self, doc: Document, docling_doc, pdf_path: str):
+        """处理Docling提取的页面内容"""
+        try:
+            # 添加主要文本内容
+            if docling_doc.main_text:
+                content_heading = doc.add_heading("文档内容", level=2)
+                
+                current_paragraph = None
+                
+                for item in docling_doc.main_text:
+                    try:
+                        # 获取文本内容
+                        text_content = ""
+                        if hasattr(item, 'text') and item.text:
+                            text_content = item.text.strip()
+                        elif hasattr(item, 'export_to_text'):
+                            text_content = item.export_to_text().strip()
+                        
+                        if not text_content:
+                            continue
+                        
+                        # 根据元素类型处理
+                        if hasattr(item, 'category'):
+                            category_str = str(item.category).lower()
+                            
+                            if 'heading' in category_str or 'title' in category_str:
+                                # 标题类型
+                                doc.add_heading(text_content, level=3)
+                                current_paragraph = None
+                            elif 'table' in category_str:
+                                # 表格类型 - 在单独的方法中处理
+                                pass
+                            elif 'figure' in category_str:
+                                # 图片类型 - 在单独的方法中处理
+                                pass
+                            else:
+                                # 普通文本
+                                if not current_paragraph or len(current_paragraph.text) > 500:
+                                    current_paragraph = doc.add_paragraph()
+                                current_paragraph.add_run(text_content + "\n")
+                        else:
+                            # 没有类别信息的文本
+                            if not current_paragraph or len(current_paragraph.text) > 500:
+                                current_paragraph = doc.add_paragraph()
+                            current_paragraph.add_run(text_content + "\n")
+                            
+                    except Exception as item_error:
+                        logger.warning(f"处理文档项目失败: {item_error}")
+                        continue
+            
+            # 如果没有主要文本，导出全部文本
+            else:
+                text_content = docling_doc.export_to_text()
+                if text_content.strip():
+                    content_heading = doc.add_heading("提取的文本内容", level=2)
+                    # 将长文本分段
+                    paragraphs = text_content.split('\n\n')
+                    for para_text in paragraphs:
+                        if para_text.strip():
+                            doc.add_paragraph(para_text.strip())
+                            
+        except Exception as e:
+            logger.error(f"处理Docling页面内容失败: {e}")
+            # 降级处理
+            try:
+                text_content = docling_doc.export_to_text()
+                if text_content.strip():
+                    doc.add_heading("文档内容（简化处理）", level=2)
+                    doc.add_paragraph(text_content)
+            except Exception as fallback_error:
+                logger.error(f"降级文本提取也失败: {fallback_error}")
+    
+    async def _extract_and_add_tables(self, doc: Document, docling_doc):
+        """提取并添加表格"""
+        try:
+            tables_found = 0
+            for item in docling_doc.main_text:
+                try:
+                    if hasattr(item, 'category') and 'table' in str(item.category).lower():
+                        tables_found += 1
+                        
+                        # 添加表格标题
+                        table_heading = doc.add_heading(f"表格 {tables_found}", level=3)
+                        
+                        # 尝试提取表格数据
+                        if hasattr(item, 'export_to_text'):
+                            table_text = item.export_to_text()
+                            doc.add_paragraph(table_text)
+                        elif hasattr(item, 'text'):
+                            doc.add_paragraph(item.text)
+                        else:
+                            doc.add_paragraph("表格内容无法提取")
+                        
+                        # 添加分隔符
+                        doc.add_paragraph("─" * 50)
+                        
+                except Exception as table_error:
+                    logger.warning(f"处理表格 {tables_found} 失败: {table_error}")
+                    continue
+            
+            if tables_found > 0:
+                logger.info(f"成功提取 {tables_found} 个表格")
+            
+        except Exception as e:
+            logger.error(f"表格提取失败: {e}")
+    
+    async def _extract_and_add_figures(self, doc: Document, docling_doc, pdf_path: str):
+        """提取并添加图像"""
+        try:
+            figures_found = 0
+            
+            # 先处理Docling识别的图像元素
+            for item in docling_doc.main_text:
+                try:
+                    if hasattr(item, 'category') and 'figure' in str(item.category).lower():
+                        figures_found += 1
+                        
+                        # 添加图像标题
+                        figure_heading = doc.add_heading(f"图表 {figures_found}", level=3)
+                        
+                        # 添加图像描述（如果有）
+                        if hasattr(item, 'text') and item.text:
+                            doc.add_paragraph(f"图表描述: {item.text}")
+                        elif hasattr(item, 'export_to_text'):
+                            desc_text = item.export_to_text()
+                            if desc_text.strip():
+                                doc.add_paragraph(f"图表描述: {desc_text}")
+                        
+                except Exception as figure_error:
+                    logger.warning(f"处理图表 {figures_found} 失败: {figure_error}")
+                    continue
+            
+            # 如果没有找到图像元素，或者需要添加页面截图，使用PyMuPDF渲染页面
+            if figures_found == 0 or True:  # 总是添加页面截图作为补充
+                await self._add_page_screenshots(doc, pdf_path)
+            
+            if figures_found > 0:
+                logger.info(f"成功提取 {figures_found} 个图表元素")
+            
+        except Exception as e:
+            logger.error(f"图像提取失败: {e}")
+            # 降级到页面截图
+            await self._add_page_screenshots(doc, pdf_path)
+    
+    async def _add_page_screenshots(self, doc: Document, pdf_path: str):
+        """添加PDF页面截图作为补充"""
+        try:
+            import fitz
+            
+            doc.add_heading("PDF页面图像", level=2)
+            
+            pdf_document = fitz.open(pdf_path)
+            total_pages = len(pdf_document)
+            
+            for page_num in range(min(total_pages, 10)):  # 最多处理10页，避免文档过大
+                page = pdf_document.load_page(page_num)
+                mat = fitz.Matrix(1.5, 1.5)  # 适中的分辨率
+                pix = page.get_pixmap(matrix=mat)
+                
+                temp_image_path = f"temp_docling_page_{page_num + 1}_{uuid.uuid4().hex[:8]}.png"
+                pix.save(temp_image_path)
+                
+                try:
+                    # 添加页码标题
+                    page_heading = doc.add_heading(f"第 {page_num + 1} 页", level=4)
+                    
+                    # 智能计算图片大小
+                    image_width, _ = self._calculate_image_size_for_page(
+                        temp_image_path, page_num, False, max_height_inches=6.0
+                    )
+                    
+                    # 添加图片
+                    doc.add_picture(temp_image_path, width=image_width)
+                    
+                    # 只在不是最后一页时添加分页符
+                    if page_num < min(total_pages, 10) - 1:
+                        doc.add_page_break()
+                    
+                except Exception as img_error:
+                    logger.warning(f"添加第{page_num + 1}页截图失败: {img_error}")
+                    doc.add_paragraph(f"第{page_num + 1}页图像处理失败")
+                
+                # 清理临时文件
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+            
+            pdf_document.close()
+            
+            if total_pages > 10:
+                doc.add_paragraph(f"注意：文档共{total_pages}页，为节省空间仅显示前10页的图像。")
+                
+        except Exception as e:
+            logger.error(f"添加页面截图失败: {e}")
     
     async def _process_pdf_fallback(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
         """使用PyMuPDF作为备选方案处理PDF"""
         try:
             logger.info(f"使用PyMuPDF处理PDF: {filename}")
             
-            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀）
+            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
-                self._format_heading(doc, filename, level=file_title_level, center=False)
+                filename_without_ext = os.path.splitext(filename)[0]
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
             pdf_document = fitz.open(pdf_path)
+            total_pages = len(pdf_document)
             
-            for page_num in range(len(pdf_document)):
+            for page_num in range(total_pages):
                 page = pdf_document.load_page(page_num)
-                mat = fitz.Matrix(2.0, 2.0)
+                mat = fitz.Matrix(2.0, 2.0)  # 高质量渲染
                 pix = page.get_pixmap(matrix=mat)
                 
-                temp_image_path = f"temp_page_{page_num + 1}.png"
+                temp_image_path = f"temp_page_{page_num + 1}_{uuid.uuid4().hex[:8]}.png"
                 pix.save(temp_image_path)
                 
-                # 使用更小的字体显示页码，避免空白页
-                para = doc.add_paragraph()
-                run = para.add_run(f"第 {page_num + 1} 页")
-                run.font.size = Pt(10)  # 缩小字体到10pt
-                run.font.bold = True
-                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
                 try:
-                    # 根据页码和是否有文件标题调整图片大小
-                    image_width = self._calculate_image_width(page_num, show_file_titles)
-                    doc.add_picture(temp_image_path, width=image_width)
-                    doc.add_page_break()
+                    # 使用智能分页逻辑，传递是否是最后一页的信息
+                    is_last_page = (page_num == total_pages - 1)
+                    self._add_page_content_with_smart_sizing(
+                        doc, temp_image_path, page_num, show_file_titles, watermark_config, is_last_page
+                    )
+                    
+                    if is_last_page:
+                        logger.info(f"PDF处理完成，总页数: {total_pages}")
+                        
                 except Exception as e:
-                    doc.add_paragraph(f"图片插入失败: {str(e)}")
+                    logger.error(f"页面处理失败: {e}")
+                    doc.add_paragraph(f"第{page_num + 1}页处理失败: {str(e)}")
                 
+                # 清理临时文件
                 if os.path.exists(temp_image_path):
                     os.remove(temp_image_path)
             
@@ -254,50 +604,15 @@ class DoclingDocumentProcessor:
                 "message": f"PDF处理失败: {str(e)}"
             }
     
-    async def _add_images_from_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
-        """从PDF中提取图片并添加到Word文档"""
-        try:
-            pdf_document = fitz.open(pdf_path)
-            
-            for page_num in range(len(pdf_document)):
-                page = pdf_document.load_page(page_num)
-                mat = fitz.Matrix(1.5, 1.5)
-                pix = page.get_pixmap(matrix=mat)
-                
-                temp_image_path = f"temp_docling_page_{page_num + 1}.png"
-                pix.save(temp_image_path)
-                
-                # 使用更小的字体显示页码
-                para = doc.add_paragraph()
-                run = para.add_run(f"第 {page_num + 1} 页")
-                run.font.size = Pt(10)  # 缩小字体到10pt
-                run.font.bold = True
-                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
-                try:
-                    # 根据页码调整图片大小
-                    image_width = self._calculate_image_width(page_num, False)  # Docling模式不额外显示文件标题
-                    doc.add_picture(temp_image_path, width=image_width)
-                    doc.add_page_break()
-                except Exception as e:
-                    logger.warning(f"插入图片失败: {e}")
-                
-                if os.path.exists(temp_image_path):
-                    os.remove(temp_image_path)
-            
-            pdf_document.close()
-            
-        except Exception as e:
-            logger.error(f"从PDF提取图片失败: {e}")
-    
-    async def process_image(self, image_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
+    async def process_image(self, image_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """处理图片文件"""
         try:
             logger.info(f"处理图片: {filename}")
             
-            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀）
+            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
-                self._format_heading(doc, filename, level=file_title_level, center=False)
+                filename_without_ext = os.path.splitext(filename)[0]
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
             with Image.open(image_path) as img:
                 width, height = img.size
@@ -305,11 +620,23 @@ class DoclingDocumentProcessor:
                 doc.add_paragraph(f"格式: {img.format}")
                 doc.add_paragraph(f"模式: {img.mode}")
             
-            # 根据是否有文件标题调整图片大小
-            image_width = self._calculate_image_width(0, show_file_titles)  # 图片文件视为第0页
+            # 使用智能图片大小计算
+            try:
+                image_width, needs_page_break = self._calculate_image_size_for_page(
+                    image_path, 0, show_file_titles
+                )
+            except Exception as e:
+                logger.warning(f"智能大小计算失败: {e}，使用默认方法")
+                image_width = self._calculate_image_width(0, show_file_titles)  # 图片文件视为第0页
+            
             doc.add_picture(image_path, width=image_width)
             
-            doc.add_page_break()
+            # 只在不是最后一个文件时添加分页符
+            if not is_last_file:
+                doc.add_page_break()
+                logger.debug(f"图片处理完成，已添加分页符")
+            else:
+                logger.debug(f"图片处理完成，跳过分页符（最后一个文件）")
             
             return {
                 "success": True,
@@ -346,10 +673,12 @@ class DoclingDocumentProcessor:
             
             processed_files = []
             results = []
+            total_files = len(files)
             
-            for file_path in files:
+            for file_index, file_path in enumerate(files):
                 filename = os.path.basename(file_path)
                 file_ext = os.path.splitext(filename)[1].lower()
+                is_last_file = (file_index == total_files - 1)
                 
                 if file_ext == '.pdf':
                     # 使用Docling处理PDF
@@ -358,7 +687,7 @@ class DoclingDocumentProcessor:
                     results.append(result)
                 elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
                     # 处理图片
-                    result = await self.process_image(file_path, doc, filename)
+                    result = await self.process_image(file_path, doc, filename, None, True, 2, is_last_file)
                     processed_files.append(f"图片: {filename}")
                     results.append(result)
                 else:
@@ -633,6 +962,9 @@ def format_heading_standalone(doc, text, level=1, center=False):
             run.font.name = '楷体'
         
         run.bold = True
+        
+        # 确保字体颜色是黑色
+        run.font.color.rgb = RGBColor(0, 0, 0)  # 设置为黑色
         
         # 设置中英文字体
         run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')

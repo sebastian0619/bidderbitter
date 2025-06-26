@@ -94,14 +94,7 @@ class WatermarkEngine:
     @classmethod
     def apply_watermark(cls, doc: Document, config: WatermarkConfig) -> bool:
         """
-        在Word文档中应用水印
-        
-        Args:
-            doc: docx Document对象
-            config: 水印配置对象
-            
-        Returns:
-            bool: 是否成功应用水印
+        在Word文档的每一页都应用水印
         """
         try:
             if not config.is_valid():
@@ -112,204 +105,108 @@ class WatermarkEngine:
             rgb_color = cls.hex_to_rgb(config.watermark_color)
             rgb_color = cls.apply_transparency(rgb_color, config.watermark_opacity)
             
-            # 根据位置模式应用水印
-            if config.watermark_position == "center":
-                return cls._add_center_watermark(doc, config.watermark_text, config.watermark_font_size, rgb_color, config.watermark_rotation)
-            elif config.watermark_position == "repeat":
-                return cls._add_repeat_watermark(doc, config.watermark_text, config.watermark_font_size, rgb_color, config.watermark_rotation)
-            elif config.watermark_position == "background":
-                return cls._add_background_watermark(doc, config.watermark_text, config.watermark_font_size, rgb_color, config.watermark_rotation)
-            elif config.watermark_position in ["top-left", "top-right", "bottom-left", "bottom-right"]:
-                return cls._add_corner_watermark(doc, config.watermark_text, config.watermark_font_size, rgb_color, config.watermark_rotation, config.watermark_position)
-            else:
-                logger.error(f"Unknown watermark position: {config.watermark_position}")
-                return False
+            # 在每页插入水印 - 遍历所有段落，每隔一定数量插入水印
+            paragraphs = list(doc.paragraphs)
+            paragraphs_per_page = 25  # 估算每页大约25个段落
+            
+            # 从后往前插入，避免索引变化
+            for i in range(len(paragraphs) - 1, -1, -paragraphs_per_page):
+                insert_position = max(0, i - paragraphs_per_page + 5)  # 在页面前部插入
+                if insert_position < len(paragraphs):
+                    # 在指定位置插入水印
+                    cls._insert_watermark_at_position(doc, insert_position, config.watermark_text, 
+                                                    config.watermark_font_size, rgb_color, 
+                                                    config.watermark_rotation, config.watermark_position)
+            
+            # 在文档开头也插入一个水印
+            cls._insert_watermark_at_position(doc, 0, config.watermark_text, 
+                                            config.watermark_font_size, rgb_color, 
+                                            config.watermark_rotation, config.watermark_position)
+            
+            logger.info(f"Added watermarks throughout document: {config.watermark_text}")
+            return True
                 
         except Exception as e:
             logger.error(f"Error applying watermark: {e}")
             return False
     
+    @classmethod
+    def _insert_watermark_at_position(cls, doc: Document, position: int, text: str, font_size: int, rgb_color: tuple, rotation: int, watermark_position: str):
+        """在指定位置插入水印"""
+        try:
+            # 根据角度应用装饰
+            decorated_text = cls.apply_rotation_decoration(text, rotation)
+            
+            # 在指定位置插入段落
+            if position < len(doc.paragraphs):
+                target_para = doc.paragraphs[position]
+                watermark_para = target_para.insert_paragraph_before()
+            else:
+                watermark_para = doc.add_paragraph()
+            
+            # 设置水印样式
+            if watermark_position == "center":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                watermark_text = f"『 {decorated_text} 』"
+                font_size_multiplier = 1.5
+            elif watermark_position == "repeat":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER  
+                watermark_text = f"◆ {decorated_text} ◆"
+                font_size_multiplier = 1.0
+            elif watermark_position == "background":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                watermark_text = f"【 {decorated_text} 】"
+                font_size_multiplier = 1.2
+            elif watermark_position == "top-left":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                watermark_text = f"◆ {decorated_text}"
+                font_size_multiplier = 0.8
+            elif watermark_position == "top-right":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                watermark_text = f"{decorated_text} ◆"
+                font_size_multiplier = 0.8
+            elif watermark_position == "bottom-left":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                watermark_text = f"◇ {decorated_text}"
+                font_size_multiplier = 0.8
+            elif watermark_position == "bottom-right":
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                watermark_text = f"{decorated_text} ◇"
+                font_size_multiplier = 0.8
+            else:
+                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                watermark_text = f"『 {decorated_text} 』"
+                font_size_multiplier = 1.5
+            
+            # 添加水印文字
+            run = watermark_para.add_run(watermark_text)
+            run.font.size = Pt(int(font_size * font_size_multiplier))
+            run.font.color.rgb = RGBColor(*rgb_color)
+            run.font.bold = True
+            run.font.name = '楷体'
+            
+        except Exception as e:
+            logger.error(f"Error inserting watermark at position {position}: {e}")
+
     @staticmethod
     def _add_center_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
-        """添加居中大水印"""
-        try:
-            # 在文档中央位置插入水印
-            for i in range(8):
-                doc.add_paragraph()
-            
-            # 根据角度应用装饰
-            decorated_text = WatermarkEngine.apply_rotation_decoration(text, rotation)
-            
-            # 上装饰边框
-            border_para1 = doc.add_paragraph()
-            border_para1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            border1_run = border_para1.add_run("◆" * 20)
-            border1_run.font.size = Pt(max(8, font_size // 3))
-            border1_run.font.color.rgb = RGBColor(*rgb_color)
-            border1_run.font.name = '楷体'
-            
-            # 主水印段落
-            watermark_para = doc.add_paragraph()
-            watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            
-            main_run = watermark_para.add_run(f"『 {decorated_text} 』")
-            main_run.font.size = Pt(font_size * 2)
-            main_run.font.color.rgb = RGBColor(*rgb_color)
-            main_run.font.bold = True
-            main_run.font.name = '楷体'
-            
-            # 下装饰边框
-            border_para2 = doc.add_paragraph()
-            border_para2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            border2_run = border_para2.add_run("◇" * 20)
-            border2_run.font.size = Pt(max(8, font_size // 3))
-            border2_run.font.color.rgb = RGBColor(*rgb_color)
-            border2_run.font.name = '楷体'
-            
-            logger.info(f"Added center watermark: {text} (rotation: {rotation}°)")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error adding center watermark: {e}")
-            return False
-    
-    @staticmethod
+        """废弃 - 使用新的apply_watermark方法"""
+        return True
+
+    @staticmethod  
     def _add_repeat_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
-        """添加重复平铺水印"""
-        try:
-            # 获取当前文档长度，在多个位置插入水印
-            current_length = len(doc.paragraphs)
-            
-            # 计算水印位置（大约每10段插入一次）
-            watermark_positions = []
-            for i in range(5, max(50, current_length + 30), 12):
-                watermark_positions.append(i)
-            
-            # 根据角度应用装饰
-            decorated_text = WatermarkEngine.apply_rotation_decoration(text, rotation)
-            
-            for pos in watermark_positions:
-                # 确保文档有足够的段落
-                while len(doc.paragraphs) < pos:
-                    doc.add_paragraph()
-                
-                # 插入水印段落
-                watermark_para = doc.add_paragraph()
-                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
-                # 创建重复的水印文字
-                repeat_text = f"◆ {decorated_text} ◆   ◇ {decorated_text} ◇   ◆ {decorated_text} ◆"
-                watermark_run = watermark_para.add_run(repeat_text)
-                watermark_run.font.size = Pt(font_size)
-                watermark_run.font.color.rgb = RGBColor(*rgb_color)
-                watermark_run.font.bold = True
-                watermark_run.italic = True
-                watermark_run.font.name = '楷体'
-                
-                # 添加装饰线
-                deco_para = doc.add_paragraph()
-                deco_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                deco_run = deco_para.add_run("~ " * 15)
-                deco_run.font.size = Pt(max(8, font_size // 2))
-                deco_run.font.color.rgb = RGBColor(*rgb_color)
-                deco_run.font.name = '楷体'
-            
-            logger.info(f"Added repeat watermark: {text} at {len(watermark_positions)} positions (rotation: {rotation}°)")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error adding repeat watermark: {e}")
-            return False
-    
+        """废弃 - 使用新的apply_watermark方法"""
+        return True
+
     @staticmethod
     def _add_background_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
-        """添加背景样式水印"""
-        try:
-            # 根据角度应用装饰
-            decorated_text = WatermarkEngine.apply_rotation_decoration(text, rotation)
-            
-            # 创建背景水印区域
-            for row in range(12):
-                bg_para = doc.add_paragraph()
-                bg_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                
-                if row == 5:  # 中心主水印
-                    bg_run = bg_para.add_run(f"【 {decorated_text} 】")
-                    bg_run.font.size = Pt(font_size * 2)
-                    bg_run.font.bold = True
-                elif row == 2 or row == 8:  # 副水印行
-                    bg_run = bg_para.add_run(f"◆ {decorated_text} ◆")
-                    bg_run.font.size = Pt(font_size)
-                    bg_run.font.bold = True
-                elif row % 2 == 0:  # 装饰行
-                    bg_run = bg_para.add_run("～ ～ ～ ～ ～ ～ ～ ～ ～ ～")
-                    bg_run.font.size = Pt(max(8, font_size // 2))
-                else:  # 空行，只有少量装饰
-                    bg_run = bg_para.add_run("· · · · ·")
-                    bg_run.font.size = Pt(max(6, font_size // 3))
-                
-                bg_run.font.color.rgb = RGBColor(*rgb_color)
-                bg_run.font.name = '楷体'
-            
-            logger.info(f"Added background watermark: {text} (rotation: {rotation}°)")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error adding background watermark: {e}")
-            return False
-    
+        """废弃 - 使用新的apply_watermark方法"""
+        return True
+
     @staticmethod
     def _add_corner_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int, position: str) -> bool:
-        """添加角落位置水印"""
-        try:
-            # 根据角度应用装饰
-            decorated_text = WatermarkEngine.apply_rotation_decoration(text, rotation)
-            
-            # 根据位置确定对齐方式
-            if position == "top-left":
-                alignment = WD_ALIGN_PARAGRAPH.LEFT
-                prefix_lines = 2
-            elif position == "top-right":
-                alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                prefix_lines = 2
-            elif position == "bottom-left":
-                alignment = WD_ALIGN_PARAGRAPH.LEFT
-                prefix_lines = 15
-            elif position == "bottom-right":
-                alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                prefix_lines = 15
-            else:
-                alignment = WD_ALIGN_PARAGRAPH.CENTER
-                prefix_lines = 8
-            
-            # 添加定位空段落
-            for i in range(prefix_lines):
-                doc.add_paragraph()
-            
-            # 添加水印段落
-            watermark_para = doc.add_paragraph()
-            watermark_para.alignment = alignment
-            
-            watermark_run = watermark_para.add_run(f"◆ {decorated_text} ◆")
-            watermark_run.font.size = Pt(font_size)
-            watermark_run.font.color.rgb = RGBColor(*rgb_color)
-            watermark_run.font.bold = True
-            watermark_run.font.name = '楷体'
-            
-            # 添加装饰线
-            deco_para = doc.add_paragraph()
-            deco_para.alignment = alignment
-            deco_run = deco_para.add_run("━" * 10)
-            deco_run.font.size = Pt(max(8, font_size // 3))
-            deco_run.font.color.rgb = RGBColor(*rgb_color)
-            deco_run.font.name = '楷体'
-            
-            logger.info(f"Added corner watermark: {text} at {position} (rotation: {rotation}°)")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error adding corner watermark: {e}")
-            return False
+        """废弃 - 使用新的apply_watermark方法"""
+        return True
 
 # 便捷函数
 def apply_watermark_to_document(doc: Document, watermark_config: Dict[str, Any]) -> bool:

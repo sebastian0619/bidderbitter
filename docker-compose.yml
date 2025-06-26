@@ -41,7 +41,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       
       # AI服务配置
-      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - AI_PROVIDER=custom
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4}
@@ -57,8 +57,8 @@ services:
       # 其他AI服务配置
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - CUSTOM_AI_API_KEY=${CUSTOM_AI_API_KEY:-}
-      - CUSTOM_AI_BASE_URL=${CUSTOM_AI_BASE_URL:-}
+      - CUSTOM_AI_API_KEY=sk-olXSWRMsoGdwlUBy4VNtwrXjDNEYfOy706FTmYF87apiSi8q
+      - CUSTOM_AI_BASE_URL=http://192.168.11.4:3010/v1
       
       # 截图服务配置
       - SELENIUM_HUB_URL=${SELENIUM_HUB_URL:-http://chrome:4444/wd/hub}
@@ -115,6 +115,7 @@ services:
       - ./screenshots:/app/screenshots
       - ./generated_docs:/app/generated_docs
       - ./templates:/app/templates
+      - ./easyocr_models:/root/.EasyOCR  # EasyOCR模型持久化存储
     networks:
       - bidder_network
 

@@ -496,4 +496,119 @@ class RecommendationRule(Base):
     success_count = Column(Integer, default=0)  # 成功次数
     
     created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) 
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+# 新增：文件管理系统模型
+
+class ManagedFile(Base):
+    """文件管理表"""
+    __tablename__ = "managed_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    original_filename = Column(String(300), nullable=False)  # 原始文件名
+    display_name = Column(String(300), nullable=False)  # 显示名称
+    storage_path = Column(String(500), nullable=False)  # 存储路径
+    
+    # 文件信息
+    file_type = Column(String(50))  # 文件类型 (document, image, pdf, etc.)
+    mime_type = Column(String(100))  # MIME类型
+    file_size = Column(Integer)  # 文件大小(字节)
+    file_hash = Column(String(64))  # 文件MD5哈希值，用于去重
+    
+    # 文件分类
+    file_category = Column(String(50), nullable=False)  # 文件类型: temporary_upload, temporary_generated, permanent
+    category = Column(String(100))  # 业务分类 (合同模板、证书文件、公司资料等)
+    tags = Column(JSON)  # 标签数组
+    
+    # 元数据
+    description = Column(Text)  # 文件描述
+    keywords = Column(String(500))  # 关键词（空格分隔）
+    
+    # 处理状态
+    is_processed = Column(Boolean, default=False)  # 是否已处理（OCR、格式转换等）
+    processed_path = Column(String(500))  # 处理后文件路径
+    processing_status = Column(String(50), default="pending")  # 处理状态
+    processing_result = Column(JSON)  # 处理结果
+    
+    # 使用统计
+    access_count = Column(Integer, default=0)  # 访问次数
+    last_accessed = Column(DateTime)  # 最后访问时间
+    
+    # 生命周期管理
+    expires_at = Column(DateTime)  # 过期时间（临时文件）
+    is_archived = Column(Boolean, default=False)  # 是否已归档
+    archived_at = Column(DateTime)  # 归档时间
+    
+    # 权限和可见性
+    is_public = Column(Boolean, default=False)  # 是否公开（可在所有项目中使用）
+    creator_id = Column(String(100))  # 创建者ID（预留用户系统）
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # 关联
+    versions = relationship("FileVersion", back_populates="file", cascade="all, delete-orphan")
+    usages = relationship("FileUsage", back_populates="file", cascade="all, delete-orphan")
+
+class FileVersion(Base):
+    """文件版本表"""
+    __tablename__ = "file_versions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("managed_files.id"))
+    version_number = Column(String(20), nullable=False)  # 版本号 (1.0, 1.1, 2.0等)
+    storage_path = Column(String(500), nullable=False)  # 版本文件路径
+    file_size = Column(Integer)  # 文件大小
+    file_hash = Column(String(64))  # 文件哈希值
+    change_description = Column(Text)  # 变更说明
+    is_current = Column(Boolean, default=True)  # 是否当前版本
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    # 关联
+    file = relationship("ManagedFile", back_populates="versions")
+
+class FileUsage(Base):
+    """文件使用记录表"""
+    __tablename__ = "file_usages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("managed_files.id"))
+    
+    # 使用场景
+    usage_type = Column(String(50), nullable=False)  # 使用类型: conversion, project, template
+    usage_context_id = Column(Integer)  # 使用上下文ID（项目ID、任务ID等）
+    usage_context_type = Column(String(50))  # 使用上下文类型
+    
+    # 使用详情
+    usage_description = Column(Text)  # 使用描述
+    result_path = Column(String(500))  # 生成结果路径
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    # 关联
+    file = relationship("ManagedFile", back_populates="usages")
+
+class FileCategory(Base):
+    """文件分类表"""
+    __tablename__ = "file_categories"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True)  # 分类名称
+    display_name = Column(String(200))  # 显示名称
+    parent_id = Column(Integer, ForeignKey("file_categories.id"))  # 父分类
+    description = Column(Text)  # 分类描述
+    icon = Column(String(100))  # 图标
+    color = Column(String(20))  # 颜色
+    
+    # 分类设置
+    is_active = Column(Boolean, default=True)  # 是否启用
+    sort_order = Column(Integer, default=0)  # 排序
+    allowed_extensions = Column(JSON)  # 允许的文件扩展名
+    max_file_size = Column(Integer)  # 最大文件大小(字节)
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # 自引用关系
+    children = relationship("FileCategory", backref="parent", remote_side=[id]) 
