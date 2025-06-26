@@ -1435,25 +1435,38 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
             page_width = page_rect.width
             page_height = page_rect.height
             
-            # 根据位置计算水印位置
+            # 计算文本尺寸以正确居中
+            try:
+                # 获取文本宽度（PyMuPDF返回像素宽度）
+                text_width = fitz.get_text_length(text, fontname="china-ss", fontsize=font_size)
+                # 估算文本高度（基于字体大小）
+                text_height = font_size
+            except:
+                # 如果测量失败，使用估算值
+                text_width = len(text) * font_size * 0.6  # 估算：每个字符约0.6倍字体大小
+                text_height = font_size
+            
+            # 根据位置计算水印位置（考虑文本实际尺寸）
             if position == "center":
-                x = page_width / 2
-                y = page_height / 2
+                x = page_width / 2 - text_width / 2  # 水平居中（向左偏移文本宽度一半）
+                y = page_height / 2 + text_height / 3  # 垂直居中（考虑基线位置）
             elif position == "top-left":
                 x = 100
-                y = 100
+                y = 100 + text_height
             elif position == "top-right":
-                x = page_width - 100
-                y = 100
+                x = page_width - 100 - text_width
+                y = 100 + text_height
             elif position == "bottom-left":
                 x = 100
                 y = page_height - 100
             elif position == "bottom-right":
-                x = page_width - 100
+                x = page_width - 100 - text_width
                 y = page_height - 100
             else:  # 默认居中
-                x = page_width / 2
-                y = page_height / 2
+                x = page_width / 2 - text_width / 2
+                y = page_height / 2 + text_height / 3
+            
+            logger.info(f"水印位置计算: 页面({page_width:.1f}x{page_height:.1f}), 文本尺寸({text_width:.1f}x{text_height:.1f}), 位置({x:.1f},{y:.1f})")
             
             try:
                 if angle != 0:
@@ -1467,8 +1480,10 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         sin_a = math.sin(angle_rad)
                         rotation_matrix = fitz.Matrix(cos_a, sin_a, -sin_a, cos_a, 0, 0)
                         
-                        # 应用变换到插入点
-                        transform_point = fitz.Point(x, y)
+                        # 计算文本的真正中心点作为旋转中心
+                        text_center_x = x + text_width / 2
+                        text_center_y = y - text_height / 3  # 调整基线偏移
+                        transform_point = fitz.Point(text_center_x, text_center_y)
                         
                         # 使用变换矩阵插入文本，使用RGB颜色+fill_opacity参数
                         page.insert_text(
@@ -1490,13 +1505,17 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         sin_a = math.sin(angle_rad)
                         
                         # 计算文本起始位置（考虑旋转中心）
-                        text_length = len(text)
                         char_spacing = font_size * 0.6
-                        total_width = text_length * char_spacing
+                        
+                        # 使用实际测量的文本宽度，如果不可用则估算
+                        try:
+                            actual_text_width = text_width  # 使用之前测量的宽度
+                        except:
+                            actual_text_width = len(text) * char_spacing
                         
                         # 调整起始位置，使文本以指定点为中心旋转
-                        start_offset_x = -total_width / 2
-                        start_offset_y = 0
+                        start_offset_x = -actual_text_width / 2
+                        start_offset_y = -text_height / 2  # 也考虑垂直居中
                         
                         # 分别放置每个字符
                         for i, char in enumerate(text):
@@ -1508,9 +1527,9 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                             rotated_x = char_offset_x * cos_a - char_offset_y * sin_a
                             rotated_y = char_offset_x * sin_a + char_offset_y * cos_a
                             
-                            # 计算最终位置
-                            char_x = x + rotated_x
-                            char_y = y + rotated_y
+                            # 计算最终位置（以文本的真正中心为旋转中心）
+                            char_x = (x + text_width / 2) + rotated_x
+                            char_y = (y - text_height / 3) + rotated_y
                             
                             try:
                                 page.insert_text(
