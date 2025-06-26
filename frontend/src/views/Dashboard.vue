@@ -568,11 +568,15 @@ const uploadForm = ref({
 const fetchFileStats = async () => {
   try {
     const response = await apiService.get('/files/stats')
-    if (response.data.success) {
-      fileStats.value = response.data.stats
+    const data = response?.data || response
+    if (data && data.success) {
+      fileStats.value = data.stats
+    } else {
+      ElMessage.error('获取文件统计失败')
     }
   } catch (error) {
     console.error('获取文件统计失败:', error)
+    ElMessage.error('获取文件统计失败')
   }
 }
 
@@ -595,20 +599,23 @@ const fetchFiles = async (category = '') => {
     }
     
     const response = await apiService.get('/files/list', { params })
-    if (response.data.success) {
+    const data = response?.data || response
+    if (data && data.success) {
       if (category === 'permanent') {
-        permanentFiles.value = response.data.files
+        permanentFiles.value = data.files
       } else if (category === 'temporary_upload' || category === 'temporary_generated' || category === 'temporary') {
         // 合并所有临时文件
         if (category === 'temporary_upload') {
-          temporaryFiles.value = response.data.files
+          temporaryFiles.value = data.files
         } else if (category === 'temporary_generated') {
-          temporaryFiles.value = [...temporaryFiles.value, ...response.data.files]
+          temporaryFiles.value = [...temporaryFiles.value, ...data.files]
         } else {
-          temporaryFiles.value = response.data.files
+          temporaryFiles.value = data.files
         }
       }
-      totalFiles.value = response.data.pagination.total
+      totalFiles.value = data.pagination.total
+    } else {
+      ElMessage.error('获取文件列表失败')
     }
   } catch (error) {
     console.error('获取文件列表失败:', error)
@@ -793,15 +800,19 @@ const uploadFile = async () => {
 const loadCategoryOptions = async () => {
   try {
     const response = await apiService.get('/files/categories/suggestions')
-    if (response.data.success) {
-      aiCategories.value = response.data.categories
+    const data = response?.data || response
+    if (data && data.success) {
+      aiCategories.value = data.categories
       // 合并业务领域到通用标签
-      if (response.data.business_fields) {
-        commonTags.value = [...commonTags.value, ...response.data.business_fields]
+      if (data.business_fields) {
+        commonTags.value = [...commonTags.value, ...data.business_fields]
       }
+    } else {
+      ElMessage.error('加载分类选项失败')
     }
   } catch (error) {
     console.error('加载分类选项失败:', error)
+    ElMessage.error('加载分类选项失败')
   }
 }
 

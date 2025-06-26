@@ -97,64 +97,40 @@ class DoclingDocumentProcessor:
     def _calculate_image_size_for_page(self, image_path: str, page_num: int, has_file_title: bool, max_height_inches: float = 8.0) -> Tuple[object, bool]:
         """
         智能计算图片在页面中的合适大小，检测是否需要分页
-        
-        参数:
-        - image_path: 图片路径
-        - page_num: 页码（0表示第一页）
-        - has_file_title: 是否有文件标题
-        - max_height_inches: 页面最大高度（英寸）
-        
-        返回:
-        - (Inches对象表示宽度, 是否需要分页)
         """
         from docx.shared import Inches
         from PIL import Image
-        
         try:
-            # A4页面可用宽度约6.5英寸，高度约9英寸（减去页边距）
-            max_width = 6.5
+            # A4页面可用宽度约6.4英寸，高度约9英寸（减去页边距）
+            max_width = 6.4
             available_height = max_height_inches
-            
-            # 根据页面内容预留空间
+            # 预留空间更少
             if page_num == 0 and has_file_title:
-                available_height -= 1.5  # 为主标题和文件标题预留空间
+                available_height -= 1.0  # 主标题+文件标题合计只预留1.0英寸
             elif page_num == 0:
-                available_height -= 1.0  # 为主标题预留空间
+                available_height -= 0.7  # 只有主标题
             elif has_file_title:
-                available_height -= 0.8  # 为文件标题预留空间
-            
-            # 为页码标题预留空间
-            available_height -= 0.5
-            
-            # 打开图片获取尺寸
+                available_height -= 0.5  # 只有文件标题
+            # 页码预留空间更少
+            available_height -= 0.3
             with Image.open(image_path) as img:
                 img_width, img_height = img.size
                 aspect_ratio = img_height / img_width
-                
-                # 计算按宽度缩放的高度
+                # 优先按最大宽度自适应
                 scaled_height = max_width * aspect_ratio
-                
-                # 如果按最大宽度缩放后高度超过可用高度
-                if scaled_height > available_height:
-                    # 按高度缩放
+                if scaled_height > available_height * 1.15:  # 只有极端长图才按高度缩放
                     target_width = available_height / aspect_ratio
                     target_width = min(target_width, max_width)
-                    needs_page_break = scaled_height > available_height * 1.2  # 如果明显超出，建议分页
+                    needs_page_break = scaled_height > available_height * 1.5
                 else:
-                    # 使用标准宽度
-                    target_width = max_width * 0.85  # 留一些余量
+                    target_width = max_width  # 直接用最大宽度
                     needs_page_break = False
-                
                 # 确保宽度在合理范围内
-                target_width = max(3.0, min(target_width, max_width))
-                
-                logger.info(f"图片尺寸分析 - 原始: {img_width}x{img_height}, 目标宽度: {target_width:.2f}英寸, 需要分页: {needs_page_break}")
-                
+                target_width = max(3.5, min(target_width, max_width))
+                logger.info(f"图片尺寸分析(优化) - 原始: {img_width}x{img_height}, 目标宽度: {target_width:.2f}英寸, 需要分页: {needs_page_break}")
                 return Inches(target_width), needs_page_break
-                
         except Exception as e:
             logger.warning(f"图片尺寸分析失败: {e}，使用默认尺寸")
-            # 使用原有的计算方法作为备选
             return self._calculate_image_width(page_num, has_file_title), False
     
     def _calculate_image_width(self, page_num: int, has_file_title: bool) -> object:
@@ -211,55 +187,86 @@ class DoclingDocumentProcessor:
                                           is_last_page: bool = False):
         """
         智能添加页面内容，包括图片尺寸优化和分页控制
-        
-        参数:
-        - doc: Word文档对象
-        - image_path: 图片路径
-        - page_num: 页码
-        - show_file_titles: 是否显示文件标题
-        - watermark_config: 水印配置
-        - is_last_page: 是否是最后一页
         """
+        from PIL import Image
+        from docx.shared import Inches
         try:
             # 智能计算图片大小
             image_width, needs_manual_break = self._calculate_image_size_for_page(
                 image_path, page_num, show_file_titles
             )
-            
-            # 添加页码标题（使用更小的字体）
+            # 判断极端长图（高宽比>2.8）
+            with Image.open(image_path) as img:
+                img_width, img_height = img.size
+                aspect_ratio = img_height / img_width
+                if aspect_ratio > 2.8:
+                    # 自动分页裁切
+                    max_width = 6.4
+                    # 计算可用高度（与自适应算法一致）
+                    available_height = 8.0
+                    if page_num == 0 and show_file_titles:
+                        available_height -= 1.0
+                    elif page_num == 0:
+                        available_height -= 0.7
+                    elif show_file_titles:
+                        available_height -= 0.5
+                    available_height -= 0.3
+                    # 转换为像素高度（假设96dpi）
+                    dpi = img.info.get('dpi', (96, 96))[1]
+                    if not dpi or dpi < 10:
+                        dpi = 96
+                    max_page_height_px = int(available_height * dpi)
+                    # 分割图片
+                    num_slices = (img_height + max_page_height_px - 1) // max_page_height_px
+                    for i in range(num_slices):
+                        upper = i * max_page_height_px
+                        lower = min((i + 1) * max_page_height_px, img_height)
+                        box = (0, upper, img_width, lower)
+                        slice_img = img.crop(box)
+                        temp_path = f"temp_longimg_{page_num+1}_{i+1}.png"
+                        slice_img.save(temp_path)
+                        # 添加页码标题
+                        para = doc.add_paragraph()
+                        run = para.add_run(f"第 {page_num + 1}-{i + 1} 段")
+                        run.font.size = Pt(10)
+                        run.font.bold = True
+                        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        # 插入图片
+                        doc.add_picture(temp_path, width=Inches(max_width))
+                        # 除最后一段外都分页
+                        if not (is_last_page and i == num_slices - 1):
+                            doc.add_page_break()
+                        # 清理临时文件
+                        import os
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                    return
+            # 普通图片按原逻辑
             para = doc.add_paragraph()
             run = para.add_run(f"第 {page_num + 1} 页")
             run.font.size = Pt(10)  # 小字体
             run.font.bold = True
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            
-            # 插入图片
             try:
                 doc.add_picture(image_path, width=image_width)
                 logger.info(f"成功插入图片，页码: {page_num + 1}, 宽度: {image_width}")
             except Exception as img_error:
                 logger.error(f"图片插入失败: {img_error}")
                 doc.add_paragraph(f"图片插入失败: {str(img_error)}")
-            
-            # 智能分页：只在不是最后一页时添加分页符
             if not is_last_page:
                 doc.add_page_break()
                 logger.debug(f"添加分页符，页码: {page_num + 1}")
             else:
                 logger.debug(f"跳过分页符（最后一页），页码: {page_num + 1}")
-                
         except Exception as e:
             logger.error(f"智能页面内容添加失败: {e}")
-            # 降级到原始方法
             para = doc.add_paragraph()
             run = para.add_run(f"第 {page_num + 1} 页")
             run.font.size = Pt(10)
             para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            
             try:
                 image_width = self._calculate_image_width(page_num, show_file_titles)
                 doc.add_picture(image_path, width=image_width)
-                # 只在不是最后一页时添加分页符
                 if not is_last_page:
                     doc.add_page_break()
             except Exception as fallback_error:
