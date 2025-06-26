@@ -233,7 +233,6 @@
                       <div class="color-control">
                         <el-color-picker 
                           v-model="form.watermarkColor"
-                          show-alpha
                           color-format="hex"
                           :predefine="predefineColors"
                           size="large"

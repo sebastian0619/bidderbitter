@@ -1416,15 +1416,15 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
         else:
             r, g, b = 128, 128, 128
         
-        # 颜色值转换为0-1范围，并应用透明度
+        # 颜色值转换为0-1范围
+        color_r = r / 255.0
+        color_g = g / 255.0  
+        color_b = b / 255.0
+        
+        # 透明度（0-1范围）
         opacity_ratio = opacity / 100.0
         
-        # 修复颜色透明度处理：保持原始颜色，只调整透明度
-        final_r = r / 255.0
-        final_g = g / 255.0
-        final_b = b / 255.0
-        
-        logger.info(f"水印颜色处理: 原始RGB({r},{g},{b}) -> 透明度{opacity}% -> 最终RGB({final_r:.2f},{final_g:.2f},{final_b:.2f})")
+        logger.info(f"水印颜色处理: 接收到颜色 '{color}' -> 解析hex '{color_hex}' -> 原始RGB({r},{g},{b}) -> 透明度{opacity}% -> 最终RGB({color_r:.2f},{color_g:.2f},{color_b:.2f})")
         
         # 遍历每一页
         for page_num in range(len(doc)):
@@ -1470,12 +1470,13 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         # 应用变换到插入点
                         transform_point = fitz.Point(x, y)
                         
-                        # 使用变换矩阵插入文本
+                        # 使用变换矩阵插入文本，使用RGB颜色+fill_opacity参数
                         page.insert_text(
                             transform_point,
                             text,
                             fontsize=font_size,
-                            color=(final_r, final_g, final_b),
+                            color=(color_r, color_g, color_b),  # RGB颜色
+                            fill_opacity=opacity_ratio,  # 透明度参数
                             fontname="china-ss",  # 修复：使用思源宋体支持中文
                             morph=(transform_point, rotation_matrix)  # 使用morph参数进行旋转
                         )
@@ -1516,7 +1517,8 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                                     fitz.Point(char_x, char_y),
                                     char,
                                     fontsize=font_size,
-                                    color=(final_r, final_g, final_b),
+                                    color=(color_r, color_g, color_b),  # RGB颜色
+                                    fill_opacity=opacity_ratio,  # 透明度参数
                                     fontname="china-ss"  # 修复：使用思源宋体支持中文
                                 )
                             except Exception as char_error:
@@ -1526,12 +1528,13 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         logger.info(f"页面 {page_num + 1} 使用字符分布模拟角度（角度: {angle}°, 颜色: {color}）")
                         
                 else:
-                    # 无旋转，直接添加文本
+                    # 无旋转，直接添加文本，使用RGB颜色+fill_opacity参数
                     page.insert_text(
                         fitz.Point(x, y),
                         text,
                         fontsize=font_size,
-                        color=(final_r, final_g, final_b),
+                        color=(color_r, color_g, color_b),  # RGB颜色
+                        fill_opacity=opacity_ratio,  # 透明度参数
                         fontname="china-ss"  # 修复：使用思源宋体支持中文
                     )
                     logger.info(f"页面 {page_num + 1} 水印添加成功（无旋转, 颜色: {color}）")
@@ -1540,11 +1543,13 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                 logger.error(f"页面 {page_num + 1} 水印添加失败: {text_error}")
                 # 降级处理：使用最简单的方法
                 try:
+                    # 降级处理也使用RGB颜色+fill_opacity参数
                     page.insert_text(
                         fitz.Point(x, y),
                         text,
                         fontsize=font_size,
-                        color=(r/255.0, g/255.0, b/255.0),  # 使用原始颜色
+                        color=(color_r, color_g, color_b),  # RGB颜色
+                        fill_opacity=opacity_ratio,  # 透明度参数
                         fontname="china-ss"  # 修复：使用思源宋体支持中文
                     )
                     logger.info(f"页面 {page_num + 1} 使用降级方法添加水印")
