@@ -80,86 +80,170 @@
               </el-form-item>
               
               <!-- 水印配置区域 -->
-              <div v-if="form.enableWatermark" class="watermark-config">
-                <el-form-item label="水印文字">
-                  <el-input 
-                    v-model="form.watermarkText" 
-                    placeholder="请输入水印文字"
-                    clearable
-                  />
-                </el-form-item>
+              <div v-if="form.enableWatermark" class="watermark-config-panel">
+                <div class="config-section">
+                  <h4 class="section-title">
+                    <el-icon><Edit /></el-icon>
+                    基本设置
+                  </h4>
+                  
+                  <el-form-item label="水印文字" class="watermark-text-input">
+                    <el-input 
+                      v-model="form.watermarkText" 
+                      placeholder="请输入水印文字，如：投标苦、机密文档"
+                      clearable
+                      maxlength="20"
+                      show-word-limit
+                    >
+                      <template #prepend>
+                        <el-icon><ChatLineSquare /></el-icon>
+                      </template>
+                    </el-input>
+                  </el-form-item>
+
+                  <el-form-item label="水印位置" class="position-selector">
+                    <el-radio-group v-model="form.watermarkPosition" class="position-radio-group">
+                      <el-radio-button value="center">
+                        <el-icon><Aim /></el-icon>
+                        居中大水印
+                      </el-radio-button>
+                      <el-radio-button value="repeat">
+                        <el-icon><Grid /></el-icon>
+                        平铺多处
+                      </el-radio-button>
+                      <el-radio-button value="background">
+                        <el-icon><Picture /></el-icon>
+                        背景样式
+                      </el-radio-button>
+                    </el-radio-group>
+                    <el-radio-group v-model="form.watermarkPosition" class="corner-radio-group">
+                      <el-radio-button value="top-left">左上角</el-radio-button>
+                      <el-radio-button value="top-right">右上角</el-radio-button>
+                      <el-radio-button value="bottom-left">左下角</el-radio-button>
+                      <el-radio-button value="bottom-right">右下角</el-radio-button>
+                    </el-radio-group>
+                  </el-form-item>
+                </div>
+
+                <div class="config-section">
+                  <h4 class="section-title">
+                    <el-icon><Setting /></el-icon>
+                    样式调整
+                  </h4>
+                  
+                  <div class="style-controls">
+                    <div class="control-item">
+                      <label class="control-label">
+                        <el-icon><Edit /></el-icon>
+                        字体大小
+                      </label>
+                      <div class="control-content">
+                        <el-slider
+                          v-model="form.watermarkFontSize"
+                          :min="12"
+                          :max="100"
+                          :step="2"
+                          show-input
+                          :show-input-controls="false"
+                          input-size="small"
+                        />
+                        <span class="unit-label">px</span>
+                      </div>
+                    </div>
+
+                    <div class="control-item">
+                      <label class="control-label">
+                        <el-icon><Refresh /></el-icon>
+                        倾斜角度
+                      </label>
+                      <div class="control-content">
+                        <el-slider
+                          v-model="form.watermarkAngle"
+                          :min="-90"
+                          :max="90"
+                          :step="5"
+                          show-input
+                          :show-input-controls="false"
+                          input-size="small"
+                        />
+                        <span class="unit-label">°</span>
+                      </div>
+                    </div>
+
+                    <div class="control-item">
+                      <label class="control-label">
+                        <el-icon><View /></el-icon>
+                        透明度
+                      </label>
+                      <div class="control-content">
+                        <el-slider
+                          v-model="form.watermarkOpacity"
+                          :min="10"
+                          :max="100"
+                          :step="5"
+                          show-input
+                          :show-input-controls="false"
+                          input-size="small"
+                        />
+                        <span class="unit-label">%</span>
+                      </div>
+                    </div>
+
+                    <div class="control-item">
+                      <label class="control-label">
+                        <el-icon><Brush /></el-icon>
+                        水印颜色
+                      </label>
+                      <div class="control-content color-picker-content">
+                        <el-color-picker 
+                          v-model="form.watermarkColor"
+                          show-alpha
+                          color-format="hex"
+                          :predefine="predefineColors"
+                        />
+                        <span class="color-preview" :style="{ backgroundColor: form.watermarkColor }"></span>
+                        <span class="color-value">{{ form.watermarkColor }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="watermark-preview">
+                  <div class="preview-header">
+                    <el-icon><View /></el-icon>
+                    预览效果
+                  </div>
+                  <div class="preview-content">
+                    <div 
+                      class="preview-watermark"
+                      :style="{
+                        fontSize: Math.max(form.watermarkFontSize / 3, 12) + 'px',
+                        color: form.watermarkColor,
+                        opacity: form.watermarkOpacity / 100,
+                        transform: `rotate(${form.watermarkAngle}deg)`
+                      }"
+                    >
+                      {{ form.watermarkText || '水印预览' }}
+                    </div>
+                  </div>
+                </div>
                 
-                <el-row :gutter="12">
-                  <el-col :span="8">
-                    <el-form-item label="字体大小">
-                      <el-input-number
-                        v-model="form.watermarkFontSize"
-                        :min="12"
-                        :max="100"
-                        size="small"
-                        controls-position="right"
-                      />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="8">
-                    <el-form-item label="倾斜角度">
-                      <el-input-number
-                        v-model="form.watermarkAngle"
-                        :min="-90"
-                        :max="90"
-                        size="small"
-                        controls-position="right"
-                      />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="8">
-                    <el-form-item label="透明度">
-                      <el-input-number
-                        v-model="form.watermarkOpacity"
-                        :min="10"
-                        :max="100"
-                        size="small"
-                        controls-position="right"
-                      />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                
-                <el-row :gutter="12">
-                  <el-col :span="12">
-                    <el-form-item label="水印颜色">
-                      <el-color-picker 
-                        v-model="form.watermarkColor"
-                        size="small"
-                        show-alpha
-                      />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="12">
-                    <el-form-item label="水印位置">
-                      <el-select 
-                        v-model="form.watermarkPosition" 
-                        placeholder="选择位置"
-                        size="small"
-                      >
-                        <el-option label="居中大水印" value="center" />
-                        <el-option label="平铺多处" value="repeat" />
-                        <el-option label="背景样式" value="background" />
-                        <el-option label="左上角" value="top-left" />
-                        <el-option label="右上角" value="top-right" />
-                        <el-option label="左下角" value="bottom-left" />
-                        <el-option label="右下角" value="bottom-right" />
-                      </el-select>
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-                
-                <el-form-item>
-                  <el-text size="small" type="info">
-                    <el-icon><InfoFilled /></el-icon>
-                    水印将以大号文字形式穿插在文档内容中，清晰可见
-                  </el-text>
-                </el-form-item>
+                <div class="watermark-tips">
+                  <el-alert
+                    title="水印说明"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                  >
+                    <template #default>
+                      <ul class="tips-list">
+                        <li>水印将使用楷体字体，以大号文字形式嵌入文档内容中</li>
+                        <li>推荐配置：字体24-32px，透明度30-50%，倾斜角度-45°</li>
+                        <li>居中模式适合机密文档，平铺模式适合长文档，角落模式适合标识</li>
+                      </ul>
+                    </template>
+                  </el-alert>
+                </div>
               </div>
             </el-form>
 
@@ -391,13 +475,28 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, DocumentAdd, Download, Clock, Refresh, Delete, InfoFilled, Warning } from '@element-plus/icons-vue'
+import { 
+  Document, DocumentAdd, Download, Clock, Refresh, Delete, InfoFilled, Warning,
+  Edit, Setting, View, Brush, Aim, Grid, Picture, ChatLineSquare
+} from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
 import FileUpload from '@/components/FileUpload.vue'
 
 // 读取最大上传大小（MB）
 const MAX_UPLOAD_SIZE_MB = Number(import.meta.env.VITE_MAX_UPLOAD_SIZE_MB) || 50
 const MAX_UPLOAD_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+// 预定义颜色
+const predefineColors = ref([
+  '#808080', // 灰色
+  '#ff0000', // 红色
+  '#0066cc', // 蓝色
+  '#00cc66', // 绿色
+  '#ff6600', // 橙色
+  '#9900cc', // 紫色
+  '#cc6600', // 棕色
+  '#6699cc', // 蓝灰色
+])
 
 // 响应式数据
 const fileUploadRef = ref()
@@ -799,7 +898,209 @@ onMounted(() => {
   }
 }
 
-// 水印配置样式
+// 水印配置面板样式
+.watermark-config-panel {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--el-fill-color-extra-light) 0%, var(--el-fill-color-light) 100%);
+  margin-top: 16px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+
+.config-section {
+  padding: 20px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+  
+  &:last-child {
+    border-bottom: none;
+  }
+  
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+    
+    .el-icon {
+      color: var(--el-color-primary);
+    }
+  }
+}
+
+.watermark-text-input {
+  .el-input__inner {
+    border-radius: 8px;
+  }
+}
+
+.position-selector {
+  .position-radio-group {
+    margin-bottom: 12px;
+    width: 100%;
+    
+    .el-radio-button {
+      flex: 1;
+      
+      :deep(.el-radio-button__inner) {
+        width: 100%;
+        border-radius: 8px;
+        margin: 0 2px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+    }
+  }
+  
+  .corner-radio-group {
+    display: flex;
+    gap: 4px;
+    
+    .el-radio-button {
+      flex: 1;
+      
+      :deep(.el-radio-button__inner) {
+        width: 100%;
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+    }
+  }
+}
+
+.style-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.control-item {
+  .control-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    
+    .el-icon {
+      color: var(--el-color-primary);
+      font-size: 16px;
+    }
+  }
+  
+  .control-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    
+    .el-slider {
+      flex: 1;
+    }
+    
+    .unit-label {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      min-width: 20px;
+    }
+  }
+  
+  .color-picker-content {
+    align-items: center;
+    gap: 12px;
+    
+    .color-preview {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 1px solid var(--el-border-color);
+      display: inline-block;
+    }
+    
+    .color-value {
+      font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      background: var(--el-fill-color-light);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  }
+}
+
+.watermark-preview {
+  margin: 16px 20px;
+  background: #fff;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  overflow: hidden;
+  
+  .preview-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    background: var(--el-fill-color-extra-light);
+    border-bottom: 1px solid var(--el-border-color-extra-light);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    
+    .el-icon {
+      color: var(--el-color-primary);
+    }
+  }
+  
+  .preview-content {
+    padding: 24px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 8px,
+      rgba(0, 0, 0, 0.02) 8px,
+      rgba(0, 0, 0, 0.02) 16px
+    );
+    
+    .preview-watermark {
+      font-family: '楷体', 'KaiTi', serif;
+      font-weight: bold;
+      text-align: center;
+      user-select: none;
+      transition: all 0.3s ease;
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+    }
+  }
+}
+
+.watermark-tips {
+  margin: 0 20px 20px 20px;
+  
+  .tips-list {
+    margin: 0;
+    padding-left: 16px;
+    
+    li {
+      margin: 6px 0;
+      line-height: 1.4;
+      font-size: 13px;
+      color: var(--el-text-color-regular);
+    }
+  }
+}
+
+// 旧的水印配置样式（保留兼容）
 .watermark-config {
   border: 1px solid var(--el-border-color-light);
   border-radius: 6px;
@@ -837,6 +1138,50 @@ onMounted(() => {
       align-items: flex-start;
       gap: 8px;
     }
+  }
+  
+  .watermark-config-panel {
+    .config-section {
+      padding: 16px;
+      
+      .section-title {
+        font-size: 15px;
+      }
+    }
+    
+    .position-radio-group {
+      :deep(.el-radio-button__inner) {
+        padding: 6px 8px;
+        font-size: 12px;
+      }
+    }
+    
+    .style-controls {
+      gap: 16px;
+    }
+    
+    .control-item .control-content {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      
+      .el-slider {
+        width: 100%;
+      }
+    }
+  }
+  
+  .watermark-preview {
+    margin: 12px 16px;
+    
+    .preview-content {
+      height: 60px;
+      padding: 16px;
+    }
+  }
+  
+  .watermark-tips {
+    margin: 0 16px 16px 16px;
   }
 }
 </style> 
