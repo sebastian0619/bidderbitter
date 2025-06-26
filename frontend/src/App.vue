@@ -13,45 +13,49 @@
           router
           :unique-opened="true"
         >
-          <el-menu-item index="/dashboard">
-            <el-icon><House /></el-icon>
-            <span>数据管理</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/projects">
-            <el-icon><Folder /></el-icon>
-            <span>投标项目管理</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/section-manager">
-            <el-icon><Connection /></el-icon>
-            <span>智能章节管理</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/award-search">
-            <el-icon><Search /></el-icon>
-            <span>AI自动检索奖项</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/ai-assistant">
-            <el-icon><ChatDotRound /></el-icon>
-            <span>AI智能助手</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/templates">
-            <el-icon><Files /></el-icon>
-            <span>模板管理</span>
-          </el-menu-item>
+          <template v-if="!isProduction">
+            <el-menu-item index="/dashboard">
+              <el-icon><House /></el-icon>
+              <span>数据管理</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/projects">
+              <el-icon><Folder /></el-icon>
+              <span>投标项目管理</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/section-manager">
+              <el-icon><Connection /></el-icon>
+              <span>智能章节管理</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/award-search">
+              <el-icon><Search /></el-icon>
+              <span>AI自动检索奖项</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/ai-assistant">
+              <el-icon><ChatDotRound /></el-icon>
+              <span>AI智能助手</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/templates">
+              <el-icon><Files /></el-icon>
+              <span>模板管理</span>
+            </el-menu-item>
+          </template>
           
           <el-menu-item index="/converter">
             <el-icon><Document /></el-icon>
             <span>文件转Word</span>
           </el-menu-item>
           
-          <el-menu-item index="/settings">
-            <el-icon><Setting /></el-icon>
-            <span>系统设置</span>
-          </el-menu-item>
+          <template v-if="!isProduction">
+            <el-menu-item index="/settings">
+              <el-icon><Setting /></el-icon>
+              <span>系统设置</span>
+            </el-menu-item>
+          </template>
         </el-menu>
       </el-aside>
       
@@ -62,7 +66,7 @@
           <div class="header-content">
             <div class="breadcrumb">
               <el-breadcrumb separator="/">
-                <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
+                <el-breadcrumb-item :to="{ path: isProduction ? '/converter' : '/dashboard' }">首页</el-breadcrumb-item>
                 <el-breadcrumb-item v-if="currentRoute.meta?.title">
                   {{ currentRoute.meta.title }}
                 </el-breadcrumb-item>
@@ -123,6 +127,9 @@ const loadingText = computed(() => appStore.loadingText)
 
 // 获取应用名称
 const appName = ref(import.meta.env.VITE_APP_NAME || '投标苦')
+
+// 判断是否生产环境
+const isProduction = import.meta.env.VITE_PRODUCTION === 'true'
 
 // 从API获取应用信息
 const loadAppInfo = async () => {
