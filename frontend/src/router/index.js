@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import FileConverter from '@/views/FileConverter.vue'
 import NotFound from '@/views/NotFound.vue'
 
-const isProduction = import.meta.env.VITE_PRODUCTION === 'true';
+const isProduction = (import.meta.env.VITE_PRODUCTION + '').toLowerCase() === 'true';
 
 const routes = isProduction ? [
   {

@@ -130,7 +130,7 @@ const appName = ref('投标苦')
 const appSubtitle = ref('法律人的投标自救工具')
 
 // 判断是否生产环境
-const isProduction = import.meta.env.VITE_PRODUCTION === 'true'
+const isProduction = (import.meta.env.VITE_PRODUCTION + '').toLowerCase() === 'true'
 
 // 从API获取应用信息
 const loadAppInfo = async () => {
