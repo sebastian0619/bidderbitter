@@ -258,13 +258,16 @@ class DocumentProcessor:
     def __init__(self):
         """初始化Docling处理器"""
         try:
-            # 配置PDF处理选项
-            pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = True
-            pipeline_options.do_table_structure = True
-            pipeline_options.table_structure_options.do_cell_matching = True
-            pipeline_options.ocr_options.lang = ["chi_sim", "eng"]
-            pipeline_options.ocr_options.use_gpu = False
+            # 配置PDF处理选项 - 根据Docling文档规范
+            pipeline_options = PdfPipelineOptions(
+                do_ocr=True,
+                do_table_structure=True,
+                generate_page_images=False,
+                generate_picture_images=False,
+                generate_parsed_pages=True,
+                generate_table_images=False,
+                force_backend_text=False
+            )
             
             # 配置加速选项
             pipeline_options.accelerator_options = AcceleratorOptions(

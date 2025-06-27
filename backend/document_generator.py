@@ -320,7 +320,7 @@ class DocumentGenerator:
                     # 添加图片
                     paragraph = doc.add_paragraph()
                     run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
-                    run.add_picture(optimized_path, width=Inches(6.5))  # A4纸宽度约6.5英寸
+                    run.add_picture(optimized_path, width=Inches(6.23))  # 15.83厘米
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     
                     # 如果有多页，添加页面分隔符
@@ -465,7 +465,7 @@ class DocumentGenerator:
             
             paragraph = doc.add_paragraph()
             run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
-            run.add_picture(optimized_path, width=Inches(6.5))
+            run.add_picture(optimized_path, width=Inches(6.23))
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             
         except Exception as e:

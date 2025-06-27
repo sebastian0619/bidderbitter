@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const baseURL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5555/api'
+// 修正baseURL配置 - 避免重复的/api路径
+const baseURL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8000/api'
 
 // 创建axios实例
 const api = axios.create({
@@ -332,6 +333,79 @@ export const apiService = {
   // 通用GET方法
   get(url, config) {
     return api.get(url, config)
+  },
+  // 通用PUT方法
+  put(url, data, config) {
+    return api.put(url, data, config)
+  },
+  // 通用DELETE方法
+  delete(url, config) {
+    return api.delete(url, config)
+  },
+
+  // ==================== 文件管理 ====================
+  
+  // 获取文件列表
+  getFiles(params = {}) {
+    return api.get('/files/list', { params })
+  },
+  
+  // 获取文件详情
+  getFileInfo(fileId) {
+    return api.get(`/files/${fileId}`)
+  },
+  
+  // 更新文件信息
+  updateFileInfo(fileId, data) {
+    return api.put(`/files/${fileId}`, data)
+  },
+  
+  // 删除文件
+  deleteFile(fileId, force = false) {
+    return api.delete(`/files/${fileId}`, { params: { force } })
+  },
+  
+  // 下载文件
+  downloadFileById(fileId) {
+    return api.get(`/files/${fileId}/download`, { responseType: 'blob' })
+  },
+  
+  // 上传常驻文件
+  uploadPermanentFile(formData) {
+    return api.post('/files/upload/permanent', formData)
+  },
+  
+  // 上传临时文件
+  uploadTemporaryFile(formData) {
+    return api.post('/files/upload/temporary', formData)
+  },
+  
+  // AI分析文档
+  analyzeDocument(fileId, enableVision = true, forceReanalyze = false) {
+    return api.post('/files/analyze-document', {
+      file_id: fileId,
+      enable_vision: enableVision,
+      force_reanalyze: forceReanalyze
+    })
+  },
+  
+  // 批量分析文档
+  batchAnalyzeDocuments(fileIds, enableVision = true, updateRecords = false) {
+    return api.post('/files/batch-analyze', {
+      file_ids: fileIds,
+      enable_vision: enableVision,
+      update_records: updateRecords
+    })
+  },
+  
+  // 获取文件分类建议
+  getCategorySuggestions() {
+    return api.get('/files/categories/suggestions')
+  },
+  
+  // 获取文件统计信息
+  getFileStats() {
+    return api.get('/files/stats')
   },
 }
 

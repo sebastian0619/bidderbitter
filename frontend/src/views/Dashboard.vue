@@ -129,7 +129,7 @@
                     placeholder="搜索文件名、描述、标签..."
                     @input="searchFiles"
                     class="search-input"
-                  >
+        >
                     <template #prefix>
                       <el-icon><Search /></el-icon>
                     </template>
@@ -149,8 +149,8 @@
                       :value="cat.code"
                     ></el-option>
                   </el-select>
-                </div>
-              </div>
+      </div>
+      </div>
               
               <!-- 文件列表 -->
               <div class="file-table-container">
@@ -171,7 +171,7 @@
                           <div class="file-meta">
                             {{ scope.row.original_filename }}
                           </div>
-                        </div>
+    </div>
                       </div>
                     </template>
                   </el-table-column>
@@ -234,7 +234,7 @@
                     </template>
                   </el-table-column>
                   
-                  <el-table-column label="操作" width="140" fixed="right">
+                  <el-table-column label="操作" width="180" fixed="right">
                     <template #default="scope">
                       <div class="action-buttons">
                         <el-tooltip content="下载" placement="top">
@@ -246,6 +246,12 @@
                         <el-tooltip content="AI分析" placement="top">
                           <el-button size="mini" type="warning" circle @click="analyzeDocument(scope.row.id)">
                             <el-icon><MagicStick /></el-icon>
+                          </el-button>
+                        </el-tooltip>
+                        
+                        <el-tooltip content="查看律师证" placement="top" v-if="scope.row.category === 'lawyer_certificate'">
+                          <el-button size="mini" type="success" circle @click="viewLawyerCertificate(scope.row)">
+                            <el-icon><User /></el-icon>
                           </el-button>
                         </el-tooltip>
                         
@@ -636,7 +642,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   DataBoard, Document, FolderOpened, Clock, PieChart, TrendCharts, Check, Timer, DataAnalysis,
-  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled, User
+  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled, User, UserFilled
 } from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
 import LawyerCertificatesPanel from './LawyerCertificatesPanel.vue'
@@ -1102,6 +1108,43 @@ onMounted(async () => {
   await fetchFiles('permanent')
   await loadCategoryOptions()
 })
+
+// 查看律师证详情
+const viewLawyerCertificate = async (file) => {
+  try {
+    // 查找与此文件关联的律师证
+    const response = await apiService.get('/lawyer-certificates/list', {
+      params: { 
+        search: file.original_filename,
+        page: 1,
+        page_size: 1
+      }
+    })
+    
+    const data = response?.data || response
+    if (data && data.success && data.certificates.length > 0) {
+      // 切换到律师证管理标签页，并高亮显示对应的律师证
+      activeTab.value = 'lawyer-certificates'
+      
+      ElMessage.success(`已找到关联的律师证：${data.certificates[0].lawyer_name}`)
+      
+      // 可以通过事件或全局状态管理器通知律师证面板高亮显示特定记录
+      // 这里使用简单的延迟刷新来确保面板已加载
+      setTimeout(() => {
+        // 触发律师证面板的搜索功能
+        const event = new CustomEvent('highlight-lawyer-certificate', {
+          detail: { certificateId: data.certificates[0].id }
+        })
+        window.dispatchEvent(event)
+      }, 100)
+    } else {
+      ElMessage.warning('未找到与此文件关联的律师证记录')
+    }
+  } catch (error) {
+    console.error('查找律师证失败:', error)
+    ElMessage.error('查找律师证失败')
+  }
+}
 
 // 监听标签页变化
 const handleTabChange = (tab) => {

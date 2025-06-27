@@ -558,7 +558,7 @@ class RecommendationRule(Base):
     success_count = Column(Integer, default=0)  # 成功次数
     
     created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) 
 
 # 新增：文件管理系统模型
 

@@ -375,7 +375,7 @@ class BusinessFieldResponse(BusinessFieldBase):
     updated_at: datetime
 
     class Config:
-        from_attributes = True
+        from_attributes = True 
 
 # 律师证相关Schema
 class LawyerCertificateBase(BaseModel):

@@ -15,7 +15,7 @@ import mimetypes
 import pytz
 
 from database import get_db
-from models import ManagedFile, FileVersion, FileUsage, FileCategory
+from models import ManagedFile, FileVersion, FileUsage, FileCategory, LawyerCertificate, LawyerCertificateFile
 from schemas import *
 import logging
 
@@ -1114,6 +1114,177 @@ async def handle_lawyer_certificate_creation(file_record, classification, analys
         db.rollback()
         logger.error(f"创建律师证记录失败: {str(e)}")
         raise e
+
+@router.post("/{file_id}/create-lawyer-certificate")
+async def create_lawyer_certificate_from_file(
+    file_id: int,
+    lawyer_name: str = Form(...),
+    certificate_number: str = Form(...),
+    law_firm: str = Form(...),
+    issuing_authority: Optional[str] = Form(None),
+    age: Optional[int] = Form(None),
+    id_number: Optional[str] = Form(None),
+    issue_date: Optional[str] = Form(None),
+    position: Optional[str] = Form("律师"),
+    position_tags: Optional[str] = Form(None),
+    business_field_tags: Optional[str] = Form(None),
+    custom_tags: Optional[str] = Form(None),
+    verification_notes: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """从文件管理创建律师证记录（双向管理）"""
+    try:
+        # 检查文件是否存在
+        file_record = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        
+        # 检查证书号是否已存在
+        from models import LawyerCertificate, LawyerCertificateFile
+        existing = db.query(LawyerCertificate).filter(
+            LawyerCertificate.certificate_number == certificate_number
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="执业证号已存在")
+        
+        # 解析标签
+        position_tags_list = []
+        business_field_tags_list = []
+        custom_tags_list = []
+        
+        if position_tags:
+            try:
+                position_tags_list = json.loads(position_tags)
+            except:
+                position_tags_list = [tag.strip() for tag in position_tags.split(",") if tag.strip()]
+        
+        if business_field_tags:
+            try:
+                business_field_tags_list = json.loads(business_field_tags)
+            except:
+                business_field_tags_list = [tag.strip() for tag in business_field_tags.split(",") if tag.strip()]
+        
+        if custom_tags:
+            try:
+                custom_tags_list = json.loads(custom_tags)
+            except:
+                custom_tags_list = [tag.strip() for tag in custom_tags.split(",") if tag.strip()]
+        
+        # 解析日期
+        issue_date_obj = None
+        if issue_date:
+            try:
+                issue_date_obj = datetime.fromisoformat(issue_date.replace('Z', '+00:00'))
+            except:
+                pass
+        
+        # 创建律师证记录
+        lawyer_cert = LawyerCertificate(
+            lawyer_name=lawyer_name,
+            certificate_number=certificate_number,
+            law_firm=law_firm,
+            issuing_authority=issuing_authority,
+            age=age,
+            id_number=id_number,
+            issue_date=issue_date_obj,
+            position=position,
+            position_tags=position_tags_list,
+            business_field_tags=business_field_tags_list,
+            custom_tags=custom_tags_list,
+            verification_notes=verification_notes,
+            source_document=file_record.storage_path,
+            is_verified=True,  # 手动创建默认已验证
+            is_manual_input=True  # 从文件管理手动创建
+        )
+        
+        db.add(lawyer_cert)
+        db.flush()  # 获取ID
+        
+        # 创建文件关联
+        cert_file = LawyerCertificateFile(
+            certificate_id=lawyer_cert.id,
+            file_path=file_record.storage_path,
+            file_type="from_file_management",
+            file_name=file_record.original_filename,
+            file_size=file_record.file_size
+        )
+        
+        db.add(cert_file)
+        
+        # 更新文件记录的分类
+        file_record.category = "lawyer_certificate"
+        if not file_record.description:
+            file_record.description = f"律师证文档：{lawyer_name}（{certificate_number}）"
+        
+        db.commit()
+        
+        logger.info(f"从文件管理创建律师证成功: {lawyer_name} ({certificate_number})")
+        
+        return {
+            "success": True,
+            "message": "律师证创建成功",
+            "certificate_id": lawyer_cert.id,
+            "file_updated": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"从文件管理创建律师证失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"创建失败: {str(e)}")
+
+@router.get("/{file_id}/lawyer-certificate")
+async def get_related_lawyer_certificate(file_id: int, db: Session = Depends(get_db)):
+    """查看文件关联的律师证信息"""
+    try:
+        # 检查文件是否存在
+        file_record = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        
+        # 查找关联的律师证
+        from models import LawyerCertificate, LawyerCertificateFile
+        
+        # 通过文件路径查找律师证
+        cert_file = db.query(LawyerCertificateFile).filter(
+            LawyerCertificateFile.file_path == file_record.storage_path
+        ).first()
+        
+        if not cert_file:
+            # 通过源文档查找
+            cert = db.query(LawyerCertificate).filter(
+                LawyerCertificate.source_document == file_record.storage_path
+            ).first()
+            
+            if not cert:
+                return {
+                    "success": True,
+                    "has_lawyer_certificate": False,
+                    "message": "该文件未关联律师证"
+                }
+        else:
+            cert = cert_file.certificate
+        
+        return {
+            "success": True,
+            "has_lawyer_certificate": True,
+            "lawyer_certificate": {
+                "id": cert.id,
+                "lawyer_name": cert.lawyer_name,
+                "certificate_number": cert.certificate_number,
+                "law_firm": cert.law_firm,
+                "position": cert.position,
+                "is_verified": cert.is_verified,
+                "created_at": cert.created_at.isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查看文件关联律师证失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查看失败: {str(e)}")
 
 def setup_router(app):
     app.include_router(router) 

@@ -329,7 +329,7 @@
               </el-input>
               <div class="form-help">
                 <el-icon><InfoFilled /></el-icon>
-                单个文件最大大小，默认50MB (52428800字节)
+                单个文件最大大小，默认500MB (524288000字节)
               </div>
             </el-form-item>
 
@@ -844,7 +844,7 @@ const visionSettings = ref({
 })
 
 const uploadSettings = ref({
-  upload_max_file_size: '52428800',
+  upload_max_file_size: '524288000',
   upload_allowed_types: 'pdf,docx,doc,png,jpg,jpeg'
 })
 
@@ -875,6 +875,7 @@ const ocrStatusLoading = ref(false)
 const modelDownloading = ref(false)
 const ocrReloading = ref(false)
 const ocrStatus = ref({
+  docling_available: false,
   available: false,
   enabled: false,
   reader_initialized: false,
@@ -885,11 +886,13 @@ const ocrStatus = ref({
 })
 
 const ocrSettings = ref({
-  easyocr_enable: false,
-  easyocr_model_path: '/app/easyocr_models',
-  easyocr_download_proxy: '',
+  enable_docling_ocr: true,
+  docling_ocr_languages: ['ch_sim', 'en'],
+  easyocr_enable: true,  // 默认启用EasyOCR
+  easyocr_model_path: '/easyocr_models',
   easyocr_languages: ['ch_sim', 'en'],
-  easyocr_use_gpu: false
+  easyocr_use_gpu: false,
+  easyocr_download_proxy: ''
 })
 
 // 动态帮助函数
@@ -980,7 +983,7 @@ const loadSettings = async () => {
       // 填充OCR设置
       Object.keys(ocrSettings.value).forEach(key => {
         if (settings[key]) {
-          if (key === 'easyocr_languages') {
+          if (key === 'docling_ocr_languages' || key === 'easyocr_languages') {
             // 处理语言数组
             let value = settings[key].value
             if (typeof value === 'string') {
@@ -991,6 +994,13 @@ const loadSettings = async () => {
               }
             }
             ocrSettings.value[key] = Array.isArray(value) ? value : ['ch_sim', 'en']
+          } else if (key === 'easyocr_enable' || key === 'enable_docling_ocr' || key === 'easyocr_use_gpu') {
+            // 处理布尔值
+            let value = settings[key].value
+            if (typeof value === 'string') {
+              value = value.toLowerCase() === 'true'
+            }
+            ocrSettings.value[key] = Boolean(value)
           } else {
             ocrSettings.value[key] = settings[key].value
           }
@@ -1114,6 +1124,50 @@ const saveVisionSettings = async () => {
   }
 }
 
+const saveOCRSettings = async () => {
+  try {
+    saving.value = true
+    console.log('🔧 开始保存OCR设置:', ocrSettings.value)
+    
+    // 处理语言数组的序列化
+    const settingsToSave = { ...ocrSettings.value }
+    if (Array.isArray(settingsToSave.docling_ocr_languages)) {
+      settingsToSave.docling_ocr_languages = JSON.stringify(settingsToSave.docling_ocr_languages)
+    }
+    if (Array.isArray(settingsToSave.easyocr_languages)) {
+      settingsToSave.easyocr_languages = JSON.stringify(settingsToSave.easyocr_languages)
+    }
+    
+    const response = await apiService.updateSettings(settingsToSave)
+    console.log('✅ OCR设置保存响应:', response)
+    
+    const data = response?.data || response;
+    if (data && data.success) {
+      ElMessage.success({
+        message: `OCR设置保存成功！更新了 ${data.updated_settings?.length || 0} 个设置`,
+        duration: 3000
+      })
+      console.log('🔄 重新加载设置以确保同步...')
+      // 重新加载设置以确保同步
+      await loadSettings()
+      // 重新加载OCR状态
+      await refreshOCRStatus()
+    } else {
+      console.error('❌ 保存响应失败:', data)
+      ElMessage.error(data?.message || 'OCR设置保存失败')
+    }
+  } catch (error) {
+    console.error('❌ 保存OCR设置失败:', error)
+    const errorMsg = error.response?.data?.detail || error.message || '保存OCR设置失败'
+    ElMessage.error({
+      message: `保存失败: ${errorMsg}`,
+      duration: 5000
+    })
+  } finally {
+    saving.value = false
+  }
+}
+
 const saveAllSettings = async () => {
   try {
     saving.value = true
@@ -1121,7 +1175,8 @@ const saveAllSettings = async () => {
     let allSettings = {
       ...aiSettings.value,
       ...uploadSettings.value,
-      ...screenshotSettings.value
+      ...screenshotSettings.value,
+      ...ocrSettings.value  // 添加OCR设置
     }
     
     // 添加视觉模型配置
@@ -1197,7 +1252,7 @@ const refreshSettings = () => {
 const loadClassificationPrompts = async () => {
   try {
     promptLoading.value = true
-    const response = await apiService.get('/api/settings/classification-prompts')
+    const response = await apiService.get('/settings/classification-prompts')
     
     if (response.success) {
       const prompts = response.prompts
@@ -1236,7 +1291,7 @@ const savePrompt = async (promptKey) => {
       return
     }
     
-    const response = await apiService.put(`/api/settings/classification-prompts/${promptKey}`, {
+    const response = await apiService.put(`/settings/classification-prompts/${promptKey}`, {
       value: promptValue
     })
     
@@ -1282,7 +1337,7 @@ const resetPrompt = async (promptKey) => {
     )
     
     promptSaving.value = true
-    const response = await apiService.post(`/api/settings/classification-prompts/reset/${promptKey}`)
+    const response = await apiService.post(`/settings/classification-prompts/reset/${promptKey}`)
     
     if (response.success) {
       ElMessage.success('提示词重置成功')
@@ -1302,17 +1357,23 @@ const resetPrompt = async (promptKey) => {
 const refreshOCRStatus = async () => {
   try {
     ocrStatusLoading.value = true
-    const response = await apiService.get('/api/ocr/easyocr/status')
     
-    if (response.success) {
+    // 同时获取Docling和EasyOCR状态
+    const [doclingResponse, easyocrResponse] = await Promise.all([
+      apiService.get('/ocr/docling/status'),
+      apiService.get('/ocr/easyocr/status')
+    ])
+    
+    if (doclingResponse.success && easyocrResponse.success) {
       ocrStatus.value = {
-        available: response.available,
-        enabled: response.enabled,
-        reader_initialized: response.reader_initialized,
-        model_path: response.model_path,
-        languages: response.languages,
-        use_gpu: response.use_gpu,
-        proxy: response.proxy
+        docling_available: doclingResponse.docling_available,
+        ocr_enabled: doclingResponse.ocr_enabled,
+        converter_initialized: doclingResponse.converter_initialized,
+        languages: doclingResponse.languages,
+        reader_initialized: easyocrResponse.initialized,
+        easyocr_models: easyocrResponse.existing_models || [],
+        easyocr_model_path: easyocrResponse.model_path,
+        use_gpu: false  // 从其他地方获取
       }
     }
   } catch (error) {
@@ -1337,7 +1398,7 @@ const downloadModels = async () => {
     )
     
     modelDownloading.value = true
-    const response = await apiService.post('/api/ocr/easyocr/download-models')
+    const response = await apiService.post('/ocr/easyocr/download-models')
     
     if (response.success) {
       ElMessage.success('EasyOCR模型下载成功')
@@ -1357,7 +1418,7 @@ const downloadModels = async () => {
 const reloadOCR = async () => {
   try {
     ocrReloading.value = true
-    const response = await apiService.post('/api/ocr/easyocr/reload')
+    const response = await apiService.post('/ocr/docling/reload')
     
     if (response.success) {
       ElMessage.success('OCR配置重新加载成功')
@@ -1415,35 +1476,7 @@ const formatLanguages = (languages) => {
   return []
 }
 
-// 保存OCR设置
-const saveOCRSettings = async () => {
-  try {
-    saving.value = true
-    
-    // 构建OCR设置数据
-    const ocrData = {
-      easyocr_enable: ocrSettings.value.easyocr_enable,
-      easyocr_model_path: ocrSettings.value.easyocr_model_path,
-      easyocr_download_proxy: ocrSettings.value.easyocr_download_proxy,
-      easyocr_languages: JSON.stringify(ocrSettings.value.easyocr_languages),
-      easyocr_use_gpu: ocrSettings.value.easyocr_use_gpu
-    }
-    
-    const response = await apiService.updateSettings(ocrData)
-    
-    if (response.success) {
-      ElMessage.success('OCR设置保存成功')
-      // 重新加载OCR配置
-      await reloadOCR()
-    }
-  } catch (error) {
-    console.error('保存OCR设置失败:', error)
-    ElMessage.error('保存OCR设置失败: ' + (error.message || '未知错误'))
-    throw error
-  } finally {
-    saving.value = false
-  }
-}
+
 
 // 格式化日期
 const formatDate = (dateStr) => {

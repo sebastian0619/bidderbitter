@@ -512,51 +512,51 @@ def init_classification_prompts(db: Session):
             "is_editable": True,
             "requires_restart": False
         },
-        # EasyOCR配置
+        # Docling OCR配置
         {
-            "setting_key": "easyocr_enable",
+            "setting_key": "docling_enable_ocr",
+            "setting_value": "true",
+            "setting_type": "boolean",
+            "category": "ocr",
+            "description": "是否启用Docling OCR功能",
+            "is_editable": True,
+            "requires_restart": True
+        },
+        {
+            "setting_key": "docling_use_gpu",
             "setting_value": "false",
             "setting_type": "boolean",
             "category": "ocr",
-            "description": "是否启用EasyOCR（需要下载模型）",
+            "description": "Docling OCR是否使用GPU加速",
             "is_editable": True,
             "requires_restart": True
         },
         {
-            "setting_key": "easyocr_model_path",
-            "setting_value": "/app/easyocr_models",
-            "setting_type": "string", 
+            "setting_key": "docling_ocr_languages",
+            "setting_value": '["zh-cn", "en"]',
+            "setting_type": "json",
             "category": "ocr",
-            "description": "EasyOCR模型存储路径",
+            "description": "Docling OCR支持的语言列表",
             "is_editable": True,
             "requires_restart": True
         },
         {
-            "setting_key": "easyocr_download_proxy",
-            "setting_value": "",
-            "setting_type": "string",
+            "setting_key": "docling_confidence_threshold",
+            "setting_value": "0.5",
+            "setting_type": "number",
             "category": "ocr",
-            "description": "EasyOCR模型下载代理地址 (http://host:port)",
+            "description": "OCR识别置信度阈值",
             "is_editable": True,
             "requires_restart": False
         },
         {
-            "setting_key": "easyocr_languages",
-            "setting_value": '["ch_sim", "en"]',
-            "setting_type": "json",
+            "setting_key": "docling_bitmap_area_threshold", 
+            "setting_value": "0.05",
+            "setting_type": "number",
             "category": "ocr",
-            "description": "EasyOCR支持的语言列表",
+            "description": "OCR识别位图区域阈值",
             "is_editable": True,
-            "requires_restart": True
-        },
-        {
-            "setting_key": "easyocr_use_gpu",
-            "setting_value": "false",
-            "setting_type": "boolean",
-            "category": "ocr", 
-            "description": "EasyOCR是否使用GPU加速",
-            "is_editable": True,
-            "requires_restart": True
+            "requires_restart": False
         }
     ]
     

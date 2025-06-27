@@ -797,6 +797,8 @@ async def update_settings(
                     category = "upload"
                 elif key.startswith("screenshot_"):
                     category = "screenshot"
+                elif key.startswith("easyocr_") or key.startswith("docling_") or key == "enable_docling_ocr":
+                    category = "ocr"
                 
                 new_setting = SystemSettings(
                     setting_key=key,
@@ -892,7 +894,7 @@ async def init_default_settings(db: Session = Depends(get_db)):
             # 上传设置
             {
                 "key": "upload_max_file_size",
-                "value": "52428800",
+                "value": "524288000",
                 "category": "upload",
                 "description": "最大文件大小（字节）"
             },
@@ -914,6 +916,49 @@ async def init_default_settings(db: Session = Depends(get_db)):
                 "value": "20",
                 "category": "screenshot",
                 "description": "最大截图页数"
+            },
+            # OCR设置 - 默认启用EasyOCR
+            {
+                "key": "enable_docling_ocr",
+                "value": "true",
+                "category": "ocr",
+                "description": "启用Docling OCR"
+            },
+            {
+                "key": "docling_ocr_languages",
+                "value": '["ch_sim", "en"]',
+                "category": "ocr", 
+                "description": "Docling OCR支持的语言"
+            },
+            {
+                "key": "easyocr_enable",
+                "value": "true",
+                "category": "ocr",
+                "description": "启用EasyOCR (默认开启)"
+            },
+            {
+                "key": "easyocr_model_path",
+                "value": "/easyocr_models",
+                "category": "ocr",
+                "description": "EasyOCR模型存储路径"
+            },
+            {
+                "key": "easyocr_languages",
+                "value": '["ch_sim", "en"]',
+                "category": "ocr",
+                "description": "EasyOCR支持的语言"
+            },
+            {
+                "key": "easyocr_use_gpu",
+                "value": "false",
+                "category": "ocr",
+                "description": "EasyOCR是否使用GPU"
+            },
+            {
+                "key": "easyocr_download_proxy",
+                "value": "",
+                "category": "ocr",
+                "description": "EasyOCR模型下载代理"
             }
         ]
         
@@ -1762,66 +1807,95 @@ async def reset_classification_prompt(
         logger.error(f"重置分类提示词失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# 检查EasyOCR是否可用
+# 检查Docling是否可用
 try:
-    import easyocr
-    EASYOCR_AVAILABLE = True
+    import docling
+    DOCLING_AVAILABLE = True
 except ImportError:
-    EASYOCR_AVAILABLE = False
+    DOCLING_AVAILABLE = False
 
-# EasyOCR管理API
-@app.get("/api/ocr/easyocr/status")
-async def get_easyocr_status():
-    """获取EasyOCR状态"""
+# Docling OCR管理API
+@app.get("/api/ocr/docling/status")
+async def get_docling_ocr_status():
+    """获取Docling OCR状态"""
     try:
         return {
             "success": True,
-            "available": EASYOCR_AVAILABLE,
-            "enabled": ai_service.easyocr_enable,
-            "reader_initialized": ai_service.easyocr_reader is not None,
-            "model_path": ai_service.easyocr_model_path,
-            "languages": ai_service.easyocr_languages,
-            "use_gpu": ai_service.easyocr_use_gpu,
-            "proxy": ai_service.easyocr_download_proxy
+            "docling_available": DOCLING_AVAILABLE,
+            "ocr_enabled": ai_service.enable_docling_ocr,
+            "converter_initialized": ai_service.docling_converter is not None,
+            "languages": ai_service.docling_ocr_languages
         }
     except Exception as e:
-        logger.error(f"获取EasyOCR状态失败: {str(e)}")
+        logger.error(f"获取Docling OCR状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ocr/docling/reload")
+async def reload_docling_ocr():
+    """重新加载Docling OCR配置"""
+    try:
+        ai_service.reload_config()
+        
+        return {
+            "success": True,
+            "message": "Docling OCR配置重新加载成功",
+            "ocr_enabled": ai_service.enable_docling_ocr,
+            "converter_initialized": ai_service.docling_converter is not None
+        }
+    except Exception as e:
+        logger.error(f"重新加载Docling OCR配置失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/ocr/easyocr/download-models")
 async def download_easyocr_models():
     """下载EasyOCR模型"""
     try:
-        if not EASYOCR_AVAILABLE:
-            raise HTTPException(status_code=400, detail="EasyOCR不可用")
-        
+        # 调用AI服务的模型下载方法
         result = await ai_service.download_easyocr_models()
         
-        if result["success"]:
-            return result
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": result.get("message", "EasyOCR模型下载成功"),
+                "model_path": result.get("model_path")
+            }
         else:
-            raise HTTPException(status_code=500, detail=result["error"])
-            
-    except HTTPException:
-        raise
+            return {
+                "success": False,
+                "message": result.get("error", "模型下载失败")
+            }
     except Exception as e:
         logger.error(f"下载EasyOCR模型失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/ocr/easyocr/reload")
-async def reload_easyocr():
-    """重新加载EasyOCR配置"""
+@app.get("/api/ocr/easyocr/status")
+async def get_easyocr_status():
+    """获取EasyOCR模型状态"""
     try:
-        ai_service.reload_config()
+        import os
+        model_path = ai_service.easyocr_model_path
+        
+        # 检查模型文件是否存在
+        model_files = ['craft_mlt_25k.pth', 'zh_sim_g2.pth', 'english_g2.pth']
+        existing_models = []
+        
+        for model_file in model_files:
+            file_path = os.path.join(model_path, model_file)
+            if os.path.exists(file_path):
+                existing_models.append(model_file)
+        
+        is_initialized = len(existing_models) >= 2  # 至少需要2个主要模型文件
         
         return {
             "success": True,
-            "message": "EasyOCR配置重新加载成功",
-            "enabled": ai_service.easyocr_enable,
-            "reader_initialized": ai_service.easyocr_reader is not None
+            "initialized": is_initialized,
+            "model_path": model_path,
+            "existing_models": existing_models,
+            "total_models": len(model_files),
+            "languages": ai_service.easyocr_languages
         }
     except Exception as e:
-        logger.error(f"重新加载EasyOCR配置失败: {str(e)}")
+        logger.error(f"获取EasyOCR状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

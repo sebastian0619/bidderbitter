@@ -127,8 +127,6 @@
                       v-model="form.watermarkText" 
                       placeholder="请输入水印文字，如：机密文档"
                       class="modern-input"
-                      maxlength="20"
-                      show-word-limit
                     />
                   </div>
 

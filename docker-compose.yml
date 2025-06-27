@@ -62,7 +62,7 @@ services:
       - SCREENSHOT_MAX_PAGES=${SCREENSHOT_MAX_PAGES:-20}
       
       # 文件上传配置
-      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-52428800}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-524288000}
       - ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES:-pdf,docx,doc,png,jpg,jpeg}
       - UPLOAD_PATH=${UPLOAD_PATH:-/app/uploads}
       - SCREENSHOT_PATH=${SCREENSHOT_PATH:-/app/screenshots}
@@ -99,7 +99,7 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
       
       # 新增的MAX_UPLOAD_SIZE_MB
-      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
       
       # 系统名称配置
       - APP_NAME=${APP_NAME:-投标苦}
@@ -110,7 +110,7 @@ services:
       - ./screenshots:/app/screenshots
       - ./generated_docs:/app/generated_docs
       - ./templates:/app/templates
-      - ./easyocr_models:/root/.EasyOCR  # EasyOCR模型持久化存储
+      - ./easyocr_models:/easyocr_models  # EasyOCR模型持久化存储
     networks:
       - bidder_network
 
@@ -126,8 +126,8 @@ services:
     networks:
       - bidder_network
     environment:
-      - VITE_MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
-      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
+      - VITE_MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
       - VITE_APP_NAME=${APP_NAME:-投标苦}
       - VITE_PRODUCTION=${VITE_PRODUCTION:-true}
       - VITE_APP_FAVICON=${VITE_APP_FAVICON:-/favicon.ico}
