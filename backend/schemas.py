@@ -375,4 +375,69 @@ class BusinessFieldResponse(BusinessFieldBase):
     updated_at: datetime
 
     class Config:
+        from_attributes = True
+
+# 律师证相关Schema
+class LawyerCertificateBase(BaseModel):
+    lawyer_name: str
+    certificate_number: str
+    law_firm: str
+    issuing_authority: Optional[str] = None
+    age: Optional[int] = None
+    id_number: Optional[str] = None
+    issue_date: Optional[datetime] = None
+    position: Optional[str] = "律师"
+    position_tags: Optional[List[str]] = []
+    business_field_tags: Optional[List[str]] = []
+    custom_tags: Optional[List[str]] = []
+    verification_notes: Optional[str] = None
+
+class LawyerCertificateCreate(LawyerCertificateBase):
+    pass
+
+class LawyerCertificateUpdate(BaseModel):
+    lawyer_name: Optional[str] = None
+    certificate_number: Optional[str] = None
+    law_firm: Optional[str] = None
+    issuing_authority: Optional[str] = None
+    age: Optional[int] = None
+    id_number: Optional[str] = None
+    issue_date: Optional[datetime] = None
+    position: Optional[str] = None
+    position_tags: Optional[List[str]] = None
+    business_field_tags: Optional[List[str]] = None
+    custom_tags: Optional[List[str]] = None
+    is_verified: Optional[bool] = None
+    verification_notes: Optional[str] = None
+
+class LawyerCertificateResponse(LawyerCertificateBase):
+    id: int
+    source_document: Optional[str] = None
+    ai_analysis: Optional[Dict[str, Any]] = None
+    confidence_score: Optional[float] = None
+    extracted_text: Optional[str] = None
+    is_verified: bool = False
+    is_manual_input: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class LawyerCertificateFileBase(BaseModel):
+    file_path: str
+    file_type: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    page_number: Optional[int] = None
+
+class LawyerCertificateFileCreate(LawyerCertificateFileBase):
+    certificate_id: int
+
+class LawyerCertificateFileResponse(LawyerCertificateFileBase):
+    id: int
+    certificate_id: int
+    created_at: datetime
+
+    class Config:
         from_attributes = True 

@@ -35,6 +35,8 @@
               <span>AI自动检索奖项</span>
             </el-menu-item>
             
+            
+            
             <el-menu-item index="/ai-assistant">
               <el-icon><ChatDotRound /></el-icon>
               <span>AI智能助手</span>
@@ -111,7 +113,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
-import { House, Document, Setting, Folder, Files, Connection, Search, ChatDotRound } from '@element-plus/icons-vue'
+import { House, Document, Setting, Folder, Files, Connection, Search, ChatDotRound, User } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const appStore = useAppStore()

@@ -234,29 +234,29 @@
                     </template>
                   </el-table-column>
                   
-                  <el-table-column label="操作" width="200" fixed="right">
+                  <el-table-column label="操作" width="140" fixed="right">
                     <template #default="scope">
                       <div class="action-buttons">
-                        <el-tooltip content="下载文件" placement="top">
-                          <el-button size="small" circle @click="downloadFile(scope.row)">
+                        <el-tooltip content="下载" placement="top">
+                          <el-button size="mini" circle @click="downloadFile(scope.row)">
                             <el-icon><Download /></el-icon>
                           </el-button>
                         </el-tooltip>
                         
                         <el-tooltip content="AI分析" placement="top">
-                          <el-button size="small" type="warning" circle @click="analyzeDocument(scope.row.id)">
+                          <el-button size="mini" type="warning" circle @click="analyzeDocument(scope.row.id)">
                             <el-icon><MagicStick /></el-icon>
                           </el-button>
                         </el-tooltip>
                         
-                        <el-tooltip content="编辑信息" placement="top">
-                          <el-button size="small" type="primary" circle @click="editFile(scope.row)">
+                        <el-tooltip content="编辑" placement="top">
+                          <el-button size="mini" type="primary" circle @click="editFile(scope.row)">
                             <el-icon><Edit /></el-icon>
                           </el-button>
                         </el-tooltip>
                         
-                        <el-tooltip content="删除文件" placement="top">
-                          <el-button size="small" type="danger" circle @click="deleteFile(scope.row)">
+                        <el-tooltip content="删除" placement="top">
+                          <el-button size="mini" type="danger" circle @click="deleteFile(scope.row)">
                             <el-icon><Delete /></el-icon>
                           </el-button>
                         </el-tooltip>
@@ -278,6 +278,20 @@
                   />
                 </div>
               </div>
+            </div>
+          </el-tab-pane>
+          
+          <el-tab-pane name="lawyer-certificates">
+            <template #label>
+              <div class="tab-label">
+                <el-icon><User /></el-icon>
+                <span>律师证管理</span>
+                <el-badge v-if="lawyerStats.total_certificates" :value="lawyerStats.total_certificates" class="tab-badge" />
+              </div>
+            </template>
+            
+            <div class="lawyer-certificates-panel">
+              <LawyerCertificatesPanel />
             </div>
           </el-tab-pane>
           
@@ -372,17 +386,17 @@
                     </template>
                   </el-table-column>
                   
-                  <el-table-column label="操作" width="120" fixed="right">
+                  <el-table-column label="操作" width="100" fixed="right">
                     <template #default="scope">
                       <div class="action-buttons">
-                        <el-tooltip content="下载文件" placement="top">
-                          <el-button size="small" circle @click="downloadFile(scope.row)">
+                        <el-tooltip content="下载" placement="top">
+                          <el-button size="mini" circle @click="downloadFile(scope.row)">
                             <el-icon><Download /></el-icon>
                           </el-button>
                         </el-tooltip>
                         
-                        <el-tooltip content="删除文件" placement="top">
-                          <el-button size="small" type="danger" circle @click="deleteFile(scope.row)">
+                        <el-tooltip content="删除" placement="top">
+                          <el-button size="mini" type="danger" circle @click="deleteFile(scope.row)">
                             <el-icon><Delete /></el-icon>
                           </el-button>
                         </el-tooltip>
@@ -508,6 +522,112 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 编辑文件对话框 -->
+    <el-dialog 
+      v-model="showEditDialog" 
+      title="编辑文件信息" 
+      width="600px"
+      :close-on-click-modal="false"
+      class="edit-dialog"
+    >
+      <el-form :model="editForm" label-width="100px" class="edit-form">
+        <el-form-item label="显示名称" required>
+          <el-input 
+            v-model="editForm.display_name" 
+            placeholder="请输入文件显示名称"
+            :prefix-icon="Document"
+          />
+        </el-form-item>
+        
+        <el-form-item label="分类">
+          <el-select 
+            v-model="editForm.category" 
+            placeholder="选择文件分类" 
+            style="width: 100%"
+            clearable
+          >
+            <el-option 
+              v-for="cat in aiCategories" 
+              :key="cat.code" 
+              :label="cat.name" 
+              :value="cat.code"
+            />
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="描述">
+          <el-input 
+            v-model="editForm.description" 
+            type="textarea" 
+            :rows="3"
+            placeholder="文件描述"
+          />
+        </el-form-item>
+        
+        <el-form-item label="关键词">
+          <el-input 
+            v-model="editForm.keywords" 
+            placeholder="关键词，用空格分隔"
+          />
+        </el-form-item>
+        
+        <el-form-item label="标签">
+          <el-select 
+            v-model="editForm.tags" 
+            multiple 
+            filterable 
+            allow-create 
+            placeholder="选择或创建标签" 
+            style="width: 100%"
+          >
+            <el-option 
+              v-for="tag in commonTags" 
+              :key="tag" 
+              :label="tag" 
+              :value="tag"
+            />
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="可见性">
+          <el-switch 
+            v-model="editForm.is_public"
+            active-text="公开"
+            inactive-text="私有"
+          />
+        </el-form-item>
+        
+        <el-form-item label="AI功能">
+          <el-checkbox v-model="editForm.enable_ai_reanalysis" class="ai-checkbox">
+            <div class="checkbox-content">
+              <el-icon><MagicStick /></el-icon>
+              <span>重新进行AI智能分析</span>
+            </div>
+          </el-checkbox>
+          <div class="ai-tip">
+            <el-text size="small" type="info">
+              开启后将使用最新的AI模型重新分析文档内容和分类
+            </el-text>
+          </div>
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="showEditDialog = false" size="large">取消</el-button>
+          <el-button 
+            type="primary" 
+            @click="saveFileEdit" 
+            size="large"
+            class="save-btn"
+          >
+            <el-icon><Check /></el-icon>
+            保存更改
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -516,12 +636,16 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   DataBoard, Document, FolderOpened, Clock, PieChart, TrendCharts, Check, Timer, DataAnalysis,
-  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled
+  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled, User
 } from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
+import LawyerCertificatesPanel from './LawyerCertificatesPanel.vue'
 
 // 文件统计数据
 const fileStats = ref({})
+
+// 律师证统计数据
+const lawyerStats = ref({})
 
 // 标签页
 const activeTab = ref('permanent')
@@ -580,6 +704,19 @@ const fetchFileStats = async () => {
   }
 }
 
+// 获取律师证统计
+const fetchLawyerStats = async () => {
+  try {
+    const response = await apiService.get('/lawyer-certificates/stats')
+    const data = response?.data || response
+    if (data && data.success) {
+      lawyerStats.value = data.stats
+    }
+  } catch (error) {
+    console.error('获取律师证统计失败:', error)
+  }
+}
+
 // 获取文件列表
 const fetchFiles = async (category = '') => {
   filesLoading.value = true
@@ -603,15 +740,9 @@ const fetchFiles = async (category = '') => {
     if (data && data.success) {
       if (category === 'permanent') {
         permanentFiles.value = data.files
-      } else if (category === 'temporary_upload' || category === 'temporary_generated' || category === 'temporary') {
-        // 合并所有临时文件
-        if (category === 'temporary_upload') {
-          temporaryFiles.value = data.files
-        } else if (category === 'temporary_generated') {
-          temporaryFiles.value = [...temporaryFiles.value, ...data.files]
-        } else {
-          temporaryFiles.value = data.files
-        }
+      } else {
+        // 所有非permanent的都归为临时文件
+        temporaryFiles.value = data.files
       }
       totalFiles.value = data.pagination.total
     } else {
@@ -631,10 +762,8 @@ const refreshFiles = async () => {
   if (activeTab.value === 'permanent') {
     await fetchFiles('permanent')
   } else if (activeTab.value === 'temporary') {
-    // 先清空，再分别获取
-    temporaryFiles.value = []
-    await fetchFiles('temporary_upload')
-    await fetchFiles('temporary_generated')
+    // 获取所有临时文件（包括上传的和生成的）
+    await fetchFiles('temporary')
   }
 }
 
@@ -685,6 +814,29 @@ const getCategoryName = (categoryCode) => {
   return category ? category.name : categoryCode
 }
 
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return '无'
+  try {
+    const date = new Date(dateStr)
+    // 检查日期是否有效
+    if (isNaN(date.getTime())) return '无效日期'
+    
+    // 格式化为本地时间
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  } catch (error) {
+    console.error('日期格式化失败:', error)
+    return '格式错误'
+  }
+}
+
 // 下载文件
 const downloadFile = (file) => {
   const url = `/api/files/${file.id}/download`
@@ -693,9 +845,30 @@ const downloadFile = (file) => {
 }
 
 // 编辑文件
+const showEditDialog = ref(false)
+const editingFile = ref(null)
+const editForm = ref({
+  display_name: '',
+  category: '',
+  description: '',
+  tags: [],
+  keywords: '',
+  is_public: true,
+  enable_ai_reanalysis: false
+})
+
 const editFile = (file) => {
-  // TODO: 实现文件编辑功能
-  ElMessage.info('编辑功能开发中')
+  editingFile.value = file
+  editForm.value = {
+    display_name: file.display_name,
+    category: file.category || '',
+    description: file.description || '',
+    tags: file.tags || [],
+    keywords: file.keywords || '',
+    is_public: file.is_public,
+    enable_ai_reanalysis: false
+  }
+  showEditDialog.value = true
 }
 
 // 删除文件
@@ -819,14 +992,19 @@ const loadCategoryOptions = async () => {
 // AI分析文档
 const analyzeDocument = async (fileId, enableVision = true) => {
   try {
-    const response = await apiService.post('/files/analyze-document', {
-      file_id: fileId,
-      enable_vision: enableVision,
-      force_reanalyze: true
+    ElMessage.info('正在进行AI分析，请稍候...')
+    
+    const response = await apiService.post('/files/analyze-document', null, {
+      params: {
+        file_id: fileId,
+        enable_vision: enableVision,
+        force_reanalyze: true
+      }
     })
     
-    if (response.data.success) {
-      const classification = response.data.classification
+    const data = response?.data || response
+    if (data && data.success) {
+      const classification = data.classification
       let message = 'AI分析完成'
       
       if (classification) {
@@ -842,11 +1020,62 @@ const analyzeDocument = async (fileId, enableVision = true) => {
       ElMessage.success(message)
       refreshFiles() // 刷新文件列表
     } else {
-      ElMessage.error(response.data.message || 'AI分析失败')
+      ElMessage.error(data?.message || 'AI分析失败')
     }
   } catch (error) {
     console.error('AI分析失败:', error)
-    ElMessage.error('AI分析失败')
+    const errorMsg = error.response?.data?.detail || error.message || 'AI分析失败'
+    ElMessage.error(errorMsg)
+  }
+}
+
+// 保存文件编辑
+const saveFileEdit = async () => {
+  if (!editingFile.value) return
+  
+  try {
+    const formData = new FormData()
+    formData.append('display_name', editForm.value.display_name || '')
+    formData.append('category', editForm.value.category || '')
+    formData.append('description', editForm.value.description || '')
+    formData.append('tags', JSON.stringify(editForm.value.tags || []))
+    formData.append('keywords', editForm.value.keywords || '')
+    formData.append('is_public', editForm.value.is_public ? 'true' : 'false')
+    formData.append('enable_ai_reanalysis', editForm.value.enable_ai_reanalysis ? 'true' : 'false')
+    
+    const response = await apiService.put(`/files/${editingFile.value.id}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+    
+    const data = response?.data || response
+    if (data && data.success) {
+      let message = '文件信息更新成功'
+      
+      // 显示AI分析结果
+      if (editForm.value.enable_ai_reanalysis && data.ai_analysis) {
+        const classification = data.ai_analysis
+        message += `\nAI重新分析: ${classification.category_name || classification.category}`
+        if (classification.confidence) {
+          message += `\n置信度: ${Math.round(classification.confidence * 100)}%`
+        }
+      }
+      
+      ElMessage({
+        type: 'success',
+        message: message,
+        duration: 3000
+      })
+      showEditDialog.value = false
+      refreshFiles()
+    } else {
+      ElMessage.error(data?.message || '更新失败')
+    }
+  } catch (error) {
+    console.error('更新文件信息失败:', error)
+    const errorMsg = error.response?.data?.detail || error.message || '更新文件信息失败'
+    ElMessage.error(errorMsg)
   }
 }
 
@@ -869,6 +1098,7 @@ const resetUploadForm = () => {
 
 onMounted(async () => {
   await fetchFileStats()
+  await fetchLawyerStats()
   await fetchFiles('permanent')
   await loadCategoryOptions()
 })
@@ -1324,15 +1554,20 @@ const handleTabChange = (tab) => {
 // 操作按钮
 .action-buttons {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   justify-content: center;
   
   .el-button {
-    border-radius: 8px;
+    border-radius: 6px;
     
     &.is-circle {
-      width: 36px;
-      height: 36px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      
+      .el-icon {
+        font-size: 14px;
+      }
     }
   }
 }
@@ -1509,6 +1744,47 @@ const handleTabChange = (tab) => {
   
   .action-buttons {
     flex-wrap: wrap;
+  }
+}
+
+// 编辑对话框样式
+.edit-dialog {
+  .edit-form {
+    .el-form-item {
+      margin-bottom: 20px;
+    }
+    
+    .ai-checkbox {
+      .checkbox-content {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        
+        .el-icon {
+          color: var(--el-color-primary);
+        }
+      }
+    }
+    
+    .ai-tip {
+      margin-top: 8px;
+      padding-left: 24px;
+    }
+  }
+  
+  .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    
+    .save-btn {
+      background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
+      border: none;
+      
+      &:hover {
+        background: linear-gradient(135deg, var(--el-color-primary-dark-2) 0%, var(--el-color-primary) 100%);
+      }
+    }
   }
 }
 </style>

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 import json
 import logging
 from datetime import datetime
@@ -8,6 +9,10 @@ from datetime import datetime
 from database import get_db
 from ai_tools import tool_manager, WebReader, DatabaseTool
 from ai_service import ai_service
+
+class AIAssistantRequest(BaseModel):
+    user_message: str
+    context: Optional[Dict[str, Any]] = None
 
 router = APIRouter(prefix="/api/ai-tools", tags=["AI工具"])
 
@@ -47,8 +52,7 @@ async def execute_tool(
 
 @router.post("/ai-assistant")
 async def ai_assistant_with_tools(
-    user_message: str,
-    context: Optional[Dict[str, Any]] = None,
+    request: AIAssistantRequest,
     db: Session = Depends(get_db)
 ):
     """AI助手（支持工具调用）"""
@@ -71,14 +75,14 @@ async def ai_assistant_with_tools(
 5. 可以连续调用多个工具来完成复杂任务
 6. 始终用中文回复用户
 
-当前上下文：{json.dumps(context or {}, ensure_ascii=False)}
+当前上下文：{json.dumps(request.context or {}, ensure_ascii=False)}
 
 请根据用户的问题，选择合适的工具来帮助用户。
 """
 
         # 调用AI服务
         response = await ai_service.chat_with_tools(
-            user_message=user_message,
+            user_message=request.user_message,
             system_prompt=system_prompt,
             tools=tools,
             tool_executor=tool_manager.execute_tool

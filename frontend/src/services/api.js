@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const baseURL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:8000'
+const baseURL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5555/api'
 
 // 创建axios实例
 const api = axios.create({

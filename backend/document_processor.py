@@ -36,6 +36,46 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(CONVERTED_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
+def clean_heading_style(heading):
+    """清除标题的项目符号和列表样式，防止出现小黑点"""
+    try:
+        from docx.oxml.shared import qn
+        
+        # 清除段落的编号和项目符号
+        pPr = heading._element.get_or_add_pPr()
+        
+        # 移除编号属性
+        numPr = pPr.find(qn('w:numPr'))
+        if numPr is not None:
+            pPr.remove(numPr)
+        
+        # 设置段落格式，明确禁用列表样式和分页控制
+        if hasattr(heading, 'paragraph_format'):
+            heading.paragraph_format.left_indent = None
+            heading.paragraph_format.first_line_indent = None
+            
+            # 禁用分页控制选项，对应Word中的"分页"设置
+            heading.paragraph_format.widow_control = False      # 孤行控制
+            heading.paragraph_format.keep_with_next = False     # 与下段同页
+            heading.paragraph_format.keep_together = False      # 段中不分页
+            heading.paragraph_format.page_break_before = False  # 段前分页
+            
+    except Exception as style_error:
+        logger.warning(f"清除标题样式时出错: {style_error}")
+
+def create_clean_heading(doc, text, level=1, center=False):
+    """创建一个没有小黑点的干净标题"""
+    heading = doc.add_heading(text, level)
+    
+    # 清除项目符号样式
+    clean_heading_style(heading)
+    
+    # 设置对齐方式
+    if center or level == 0:
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    return heading
+
 class DoclingDocumentProcessor:
     """使用Docling进行文档处理的类"""
     
@@ -56,6 +96,8 @@ class DoclingDocumentProcessor:
         - 格式化的标题段落
         """
         from docx.oxml.shared import qn
+        from docx.oxml.ns import nsdecls, qn
+        from docx.oxml import parse_xml
         
         # 创建标题
         heading = doc.add_heading(text, level)
@@ -63,6 +105,30 @@ class DoclingDocumentProcessor:
         # 设置对齐方式
         if center or level == 0:
             heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # 清除段落的列表样式和项目符号，防止出现小黑点
+        try:
+            # 清除段落的编号和项目符号
+            pPr = heading._element.get_or_add_pPr()
+            
+            # 移除编号属性
+            numPr = pPr.find(qn('w:numPr'))
+            if numPr is not None:
+                pPr.remove(numPr)
+            
+            # 设置段落格式，明确禁用列表样式和分页控制
+            if hasattr(heading, 'paragraph_format'):
+                heading.paragraph_format.left_indent = None
+                heading.paragraph_format.first_line_indent = None
+                
+                # 禁用分页控制选项，对应Word中的"分页"设置
+                heading.paragraph_format.widow_control = False      # 孤行控制
+                heading.paragraph_format.keep_with_next = False     # 与下段同页
+                heading.paragraph_format.keep_together = False      # 段中不分页
+                heading.paragraph_format.page_break_before = False  # 段前分页
+                
+        except Exception as style_error:
+            logger.warning(f"清除标题样式时出错: {style_error}")
         
         # 设置字体
         if heading.runs:
@@ -84,13 +150,13 @@ class DoclingDocumentProcessor:
             
             run.bold = True
     
-        # 确保字体颜色是黑色
-        run.font.color.rgb = RGBColor(0, 0, 0)  # 设置为黑色
-        
-        # 设置中英文字体
-        run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-        run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
+            # 确保字体颜色是黑色
+            run.font.color.rgb = RGBColor(0, 0, 0)  # 设置为黑色
+            
+            # 设置中英文字体
+            run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
+            run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
         
         return heading
     
@@ -157,16 +223,32 @@ class DoclingDocumentProcessor:
             return Inches(max_width)  # 最大可用宽度
     
     def _create_converter(self):
-        """创建Docling文档转换器（禁用OCR避免模型下载）"""
+        """创建Docling文档转换器，支持OCR配置"""
         try:
             from docling.document_converter import DocumentConverter
             from docling.datamodel.base_models import InputFormat
             from docling.datamodel.pipeline_options import PdfPipelineOptions
             
-            # 创建PDF处理选项，禁用OCR
+            # 从AI服务获取OCR配置
+            try:
+                from ai_service import ai_service
+                enable_ocr = getattr(ai_service, 'enable_docling_ocr', True)
+                ocr_languages = getattr(ai_service, 'docling_ocr_languages', ['ch_sim', 'en'])
+            except:
+                enable_ocr = True
+                ocr_languages = ['ch_sim', 'en']
+            
+            # 创建PDF处理选项
             pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = False  # 禁用OCR避免EasyOCR下载
-            pipeline_options.do_table_structure = False  # 也禁用表格结构识别
+            pipeline_options.do_ocr = enable_ocr  # 根据配置启用/禁用OCR
+            pipeline_options.do_table_structure = True  # 启用表格结构识别
+            
+            # 如果启用OCR，配置OCR选项
+            if enable_ocr:
+                logger.info(f"启用Docling OCR，支持语言: {ocr_languages}")
+                # 这里可以配置OCR的具体参数，如果Docling支持的话
+            else:
+                logger.info("禁用Docling OCR")
             
             # 创建转换器
             converter = DocumentConverter(
@@ -174,7 +256,7 @@ class DoclingDocumentProcessor:
                     InputFormat.PDF: pipeline_options
                 }
             )
-            logger.info("Docling转换器创建成功（已禁用OCR）")
+            logger.info(f"Docling转换器创建成功（OCR: {'启用' if enable_ocr else '禁用'}）")
             return converter
             
         except Exception as e:
@@ -272,12 +354,12 @@ class DoclingDocumentProcessor:
             except Exception as fallback_error:
                 doc.add_paragraph(f"图片处理失败: {str(fallback_error)}")
     
-    async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
+    async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """使用Docling处理PDF文件 - 充分利用Docling的文档理解能力"""
         try:
             if not self.converter:
                 logger.warning("Docling转换器不可用，使用PyMuPDF备选方案")
-                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
             logger.info(f"开始使用Docling处理PDF: {filename}")
             
@@ -302,7 +384,13 @@ class DoclingDocumentProcessor:
             # 提取并添加图像
             await self._extract_and_add_figures(doc, docling_doc, pdf_path)
             
-            logger.info(f"Docling处理PDF完成: {filename}")
+            # 在PDF处理完成后添加分页符（除非是最后一个文件）
+            if not is_last_file:
+                doc.add_page_break()
+                logger.info(f"PDF处理完成，已添加分页符: {filename}")
+            else:
+                logger.info(f"PDF处理完成，跳过分页符（最后一个文件）: {filename}")
+            
             return {
                 "success": True,
                 "message": "PDF处理成功（Docling增强）",
@@ -315,28 +403,28 @@ class DoclingDocumentProcessor:
         except Exception as e:
             logger.error(f"Docling处理PDF失败: {e}")
             # 降级到PyMuPDF
-            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level)
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
     
     async def _add_document_metadata(self, doc: Document, docling_doc):
         """添加文档元数据信息"""
         try:
             # 如果有文档标题，添加提取的标题
             if hasattr(docling_doc, 'title') and docling_doc.title:
-                heading = doc.add_heading("文档标题", level=3)
+                heading = create_clean_heading(doc, "文档标题", level=3)
                 doc.add_paragraph(docling_doc.title)
             
             # 如果有作者信息，添加作者
             if hasattr(docling_doc, 'authors') and docling_doc.authors:
-                heading = doc.add_heading("文档作者", level=3)
+                heading = create_clean_heading(doc, "文档作者", level=3)
                 doc.add_paragraph(', '.join(docling_doc.authors))
             
             # 如果有摘要，添加摘要
             if hasattr(docling_doc, 'abstract') and docling_doc.abstract:
-                heading = doc.add_heading("文档摘要", level=3)
+                heading = create_clean_heading(doc, "文档摘要", level=3)
                 doc.add_paragraph(docling_doc.abstract)
             
             # 添加文档统计信息
-            stats_heading = doc.add_heading("文档信息", level=3)
+            stats_heading = create_clean_heading(doc, "文档信息", level=3)
             stats_para = doc.add_paragraph()
             stats_para.add_run(f"总页数: {len(docling_doc.pages)} 页\n")
             
@@ -367,7 +455,7 @@ class DoclingDocumentProcessor:
         try:
             # 添加主要文本内容
             if docling_doc.main_text:
-                content_heading = doc.add_heading("文档内容", level=2)
+                content_heading = create_clean_heading(doc, "文档内容", level=2)
                 
                 current_paragraph = None
                 
@@ -389,7 +477,7 @@ class DoclingDocumentProcessor:
                             
                             if 'heading' in category_str or 'title' in category_str:
                                 # 标题类型
-                                doc.add_heading(text_content, level=3)
+                                create_clean_heading(doc, text_content, level=3)
                                 current_paragraph = None
                             elif 'table' in category_str:
                                 # 表格类型 - 在单独的方法中处理
@@ -416,7 +504,7 @@ class DoclingDocumentProcessor:
             else:
                 text_content = docling_doc.export_to_text()
                 if text_content.strip():
-                    content_heading = doc.add_heading("提取的文本内容", level=2)
+                    content_heading = create_clean_heading(doc, "提取的文本内容", level=2)
                     # 将长文本分段
                     paragraphs = text_content.split('\n\n')
                     for para_text in paragraphs:
@@ -429,7 +517,7 @@ class DoclingDocumentProcessor:
             try:
                 text_content = docling_doc.export_to_text()
                 if text_content.strip():
-                    doc.add_heading("文档内容（简化处理）", level=2)
+                    create_clean_heading(doc, "文档内容（简化处理）", level=2)
                     doc.add_paragraph(text_content)
             except Exception as fallback_error:
                 logger.error(f"降级文本提取也失败: {fallback_error}")
@@ -444,7 +532,7 @@ class DoclingDocumentProcessor:
                         tables_found += 1
                         
                         # 添加表格标题
-                        table_heading = doc.add_heading(f"表格 {tables_found}", level=3)
+                        table_heading = create_clean_heading(doc, f"表格 {tables_found}", level=3)
                         
                         # 尝试提取表格数据
                         if hasattr(item, 'export_to_text'):
@@ -480,7 +568,7 @@ class DoclingDocumentProcessor:
                         figures_found += 1
                         
                         # 添加图像标题
-                        figure_heading = doc.add_heading(f"图表 {figures_found}", level=3)
+                        figure_heading = create_clean_heading(doc, f"图表 {figures_found}", level=3)
                         
                         # 添加图像描述（如果有）
                         if hasattr(item, 'text') and item.text:
@@ -511,7 +599,7 @@ class DoclingDocumentProcessor:
         try:
             import fitz
             
-            doc.add_heading("PDF页面图像", level=2)
+            create_clean_heading(doc, "PDF页面图像", level=2)
             
             pdf_document = fitz.open(pdf_path)
             total_pages = len(pdf_document)
@@ -526,7 +614,7 @@ class DoclingDocumentProcessor:
                 
                 try:
                     # 添加页码标题
-                    page_heading = doc.add_heading(f"第 {page_num + 1} 页", level=4)
+                    page_heading = create_clean_heading(doc, f"第 {page_num + 1} 页", level=4)
                     
                     # 智能计算图片大小
                     image_width, _ = self._calculate_image_size_for_page(
@@ -556,7 +644,7 @@ class DoclingDocumentProcessor:
         except Exception as e:
             logger.error(f"添加页面截图失败: {e}")
     
-    async def _process_pdf_fallback(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2):
+    async def _process_pdf_fallback(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """使用PyMuPDF作为备选方案处理PDF"""
         try:
             logger.info(f"使用PyMuPDF处理PDF: {filename}")
@@ -579,12 +667,14 @@ class DoclingDocumentProcessor:
                 
                 try:
                     # 使用智能分页逻辑，传递是否是最后一页的信息
-                    is_last_page = (page_num == total_pages - 1)
+                    # 只有当前是最后一页且是最后一个文件时，才算真正的最后一页
+                    is_last_page_of_file = (page_num == total_pages - 1)
+                    is_truly_last_page = is_last_page_of_file and is_last_file
                     self._add_page_content_with_smart_sizing(
-                        doc, temp_image_path, page_num, show_file_titles, watermark_config, is_last_page
+                        doc, temp_image_path, page_num, show_file_titles, watermark_config, is_truly_last_page
                     )
                     
-                    if is_last_page:
+                    if is_last_page_of_file:
                         logger.info(f"PDF处理完成，总页数: {total_pages}")
                         
                 except Exception as e:
@@ -942,6 +1032,8 @@ def format_heading_standalone(doc, text, level=1, center=False):
     创建格式化的标题（独立函数版本）
     """
     from docx.oxml.shared import qn
+    from docx.oxml.ns import nsdecls, qn
+    from docx.oxml import parse_xml
     
     # 创建标题
     heading = doc.add_heading(text, level)
@@ -949,6 +1041,30 @@ def format_heading_standalone(doc, text, level=1, center=False):
     # 设置对齐方式
     if center or level == 0:
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # 清除段落的列表样式和项目符号，防止出现小黑点
+    try:
+        # 清除段落的编号和项目符号
+        pPr = heading._element.get_or_add_pPr()
+        
+        # 移除编号属性
+        numPr = pPr.find(qn('w:numPr'))
+        if numPr is not None:
+            pPr.remove(numPr)
+        
+        # 设置段落格式，明确禁用列表样式和分页控制
+        if hasattr(heading, 'paragraph_format'):
+            heading.paragraph_format.left_indent = None
+            heading.paragraph_format.first_line_indent = None
+            
+            # 禁用分页控制选项，对应Word中的"分页"设置
+            heading.paragraph_format.widow_control = False      # 孤行控制
+            heading.paragraph_format.keep_with_next = False     # 与下段同页
+            heading.paragraph_format.keep_together = False      # 段中不分页
+            heading.paragraph_format.page_break_before = False  # 段前分页
+            
+    except Exception as style_error:
+        logger.warning(f"清除标题样式时出错: {style_error}")
     
     # 设置字体
     if heading.runs:

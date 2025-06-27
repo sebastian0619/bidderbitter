@@ -17,6 +17,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from PIL import Image
 from sqlalchemy import desc
 import pytz
+from sqlalchemy.sql import func
 
 # 添加当前目录到sys.path以确保模块可以被导入
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -97,6 +98,8 @@ def format_heading(doc, text, level=1, center=False):
     - 格式化的标题段落
     """
     from docx.oxml.shared import qn
+    from docx.oxml.ns import nsdecls, qn
+    from docx.oxml import parse_xml
     
     # 创建标题
     heading = doc.add_heading(text, level)
@@ -104,6 +107,30 @@ def format_heading(doc, text, level=1, center=False):
     # 设置对齐方式
     if center or level == 0:
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+            # 清除段落的列表样式和项目符号，防止出现小黑点
+        try:
+            # 清除段落的编号和项目符号
+            pPr = heading._element.get_or_add_pPr()
+            
+            # 移除编号属性
+            numPr = pPr.find(qn('w:numPr'))
+            if numPr is not None:
+                pPr.remove(numPr)
+            
+            # 设置段落格式，明确禁用列表样式和分页控制
+            if hasattr(heading, 'paragraph_format'):
+                heading.paragraph_format.left_indent = None
+                heading.paragraph_format.first_line_indent = None
+                
+                # 禁用分页控制选项，对应Word中的"分页"设置
+                heading.paragraph_format.widow_control = False      # 孤行控制
+                heading.paragraph_format.keep_with_next = False     # 与下段同页
+                heading.paragraph_format.keep_together = False      # 段中不分页
+                heading.paragraph_format.page_break_before = False  # 段前分页
+                
+        except Exception as style_error:
+            logger.warning(f"清除标题样式时出错: {style_error}")
     
     # 设置字体
     if heading.runs:
@@ -173,6 +200,14 @@ async def startup_event():
             # 注册文件管理API路由
             file_management_api.setup_router(app)
             logger.info("文件管理API路由注册成功")
+            
+            # 注册律师证管理API路由
+            try:
+                import lawyer_certificate_api
+                lawyer_certificate_api.setup_router(app)
+                logger.info("律师证管理API路由注册成功")
+            except ImportError as e:
+                logger.warning(f"律师证管理API路由注册失败: {str(e)}")
         else:
             logger.error("API路由注册失败，模块导入错误")
         
@@ -746,6 +781,10 @@ async def update_settings(
             ).first()
             
             if existing_setting:
+                # 对于敏感信息，如果值为脱敏符号则跳过更新
+                if existing_setting.is_sensitive and str(value) == "******":
+                    logger.info(f"跳过敏感信息 {key} 的脱敏值更新")
+                    continue
                 # 更新现有设置
                 existing_setting.setting_value = str(value)
                 existing_setting.updated_at = datetime.utcnow()
@@ -1111,7 +1150,7 @@ async def convert_files_to_word(
                         logger.info(f"文件 {filename} 跳过水印")
                     
                     result = await docling_processor.process_pdf_with_docling(
-                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level
+                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, is_last_file
                     )
                     processed_files.append(f"PDF: {filename}{' (含水印)' if file_needs_watermark and watermark_text else ''}")
                     results.append(result)
@@ -1439,34 +1478,40 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
             try:
                 # 获取文本宽度（PyMuPDF返回像素宽度）
                 text_width = fitz.get_text_length(text, fontname="china-ss", fontsize=font_size)
-                # 估算文本高度（基于字体大小）
-                text_height = font_size
+                # 更精确的文本高度计算
+                text_height = font_size * 1.2  # 考虑字体的上升部和下降部
             except:
                 # 如果测量失败，使用估算值
                 text_width = len(text) * font_size * 0.6  # 估算：每个字符约0.6倍字体大小
-                text_height = font_size
+                text_height = font_size * 1.2
             
-            # 根据位置计算水印位置（考虑文本实际尺寸）
+            # 计算真正的页面中心点
+            page_center_x = page_width / 2
+            page_center_y = page_height / 2
+            
+            # 根据位置计算水印位置（确保真正居中）
             if position == "center":
-                x = page_width / 2 - text_width / 2  # 水平居中（向左偏移文本宽度一半）
-                y = page_height / 2 + text_height / 3  # 垂直居中（考虑基线位置）
+                # 直接使用页面中心作为文本的中心点
+                # 这样无论字体大小如何变化，水印都会真正居中
+                x = page_center_x  # 文本中心点的x坐标
+                y = page_center_y  # 文本中心点的y坐标
             elif position == "top-left":
-                x = 100
-                y = 100 + text_height
+                x = 100 + text_width / 2  # 让文本中心距离边缘100像素
+                y = 100 + text_height / 2
             elif position == "top-right":
-                x = page_width - 100 - text_width
-                y = 100 + text_height
+                x = page_width - 100 - text_width / 2
+                y = 100 + text_height / 2
             elif position == "bottom-left":
-                x = 100
-                y = page_height - 100
+                x = 100 + text_width / 2
+                y = page_height - 100 - text_height / 2
             elif position == "bottom-right":
-                x = page_width - 100 - text_width
-                y = page_height - 100
+                x = page_width - 100 - text_width / 2
+                y = page_height - 100 - text_height / 2
             else:  # 默认居中
-                x = page_width / 2 - text_width / 2
-                y = page_height / 2 + text_height / 3
+                x = page_center_x
+                y = page_center_y
             
-            logger.info(f"水印位置计算: 页面({page_width:.1f}x{page_height:.1f}), 文本尺寸({text_width:.1f}x{text_height:.1f}), 位置({x:.1f},{y:.1f})")
+            logger.info(f"水印位置计算: 页面({page_width:.1f}x{page_height:.1f}), 文本尺寸({text_width:.1f}x{text_height:.1f}), 中心点({x:.1f},{y:.1f})")
             
             try:
                 if angle != 0:
@@ -1480,10 +1525,9 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         sin_a = math.sin(angle_rad)
                         rotation_matrix = fitz.Matrix(cos_a, sin_a, -sin_a, cos_a, 0, 0)
                         
-                        # 计算文本的真正中心点作为旋转中心
-                        text_center_x = x + text_width / 2
-                        text_center_y = y - text_height / 3  # 调整基线偏移
-                        transform_point = fitz.Point(text_center_x, text_center_y)
+                        # 使用预设的中心点作为旋转中心
+                        # x, y 已经是文本中心点，直接使用
+                        transform_point = fitz.Point(x, y)
                         
                         # 使用变换矩阵插入文本，使用RGB颜色+fill_opacity参数
                         page.insert_text(
@@ -1504,32 +1548,26 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         cos_a = math.cos(angle_rad)
                         sin_a = math.sin(angle_rad)
                         
-                        # 计算文本起始位置（考虑旋转中心）
-                        char_spacing = font_size * 0.6
+                        # 计算字符分布的精确间距
+                        char_spacing = text_width / len(text) if len(text) > 0 else font_size * 0.6
                         
-                        # 使用实际测量的文本宽度，如果不可用则估算
-                        try:
-                            actual_text_width = text_width  # 使用之前测量的宽度
-                        except:
-                            actual_text_width = len(text) * char_spacing
-                        
-                        # 调整起始位置，使文本以指定点为中心旋转
-                        start_offset_x = -actual_text_width / 2
-                        start_offset_y = -text_height / 2  # 也考虑垂直居中
+                        # 计算起始位置，使整个文本以(x,y)为中心
+                        start_offset_x = -text_width / 2
+                        start_offset_y = 0  # 垂直居中，基线偏移为0
                         
                         # 分别放置每个字符
                         for i, char in enumerate(text):
                             # 计算字符在旋转前的相对位置
-                            char_offset_x = start_offset_x + i * char_spacing
+                            char_offset_x = start_offset_x + (i + 0.5) * char_spacing
                             char_offset_y = start_offset_y
                             
                             # 应用旋转变换
                             rotated_x = char_offset_x * cos_a - char_offset_y * sin_a
                             rotated_y = char_offset_x * sin_a + char_offset_y * cos_a
                             
-                            # 计算最终位置（以文本的真正中心为旋转中心）
-                            char_x = (x + text_width / 2) + rotated_x
-                            char_y = (y - text_height / 3) + rotated_y
+                            # 计算最终位置（以预设的中心点为旋转中心）
+                            char_x = x + rotated_x
+                            char_y = y + rotated_y
                             
                             try:
                                 page.insert_text(
@@ -1547,9 +1585,14 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                         logger.info(f"页面 {page_num + 1} 使用字符分布模拟角度（角度: {angle}°, 颜色: {color}）")
                         
                 else:
-                    # 无旋转，直接添加文本，使用RGB颜色+fill_opacity参数
+                    # 无旋转，需要计算文本起始位置（左下角）
+                    # x, y是文本中心点，需要转换为文本起始点
+                    text_start_x = x - text_width / 2
+                    text_start_y = y + font_size / 3  # 调整基线位置
+                    
+                    # 直接添加文本，使用RGB颜色+fill_opacity参数
                     page.insert_text(
-                        fitz.Point(x, y),
+                        fitz.Point(text_start_x, text_start_y),
                         text,
                         fontsize=font_size,
                         color=(color_r, color_g, color_b),  # RGB颜色
@@ -1562,9 +1605,13 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
                 logger.error(f"页面 {page_num + 1} 水印添加失败: {text_error}")
                 # 降级处理：使用最简单的方法
                 try:
+                    # 降级处理：使用简单的居中计算
+                    fallback_x = x - text_width / 2
+                    fallback_y = y + font_size / 3
+                    
                     # 降级处理也使用RGB颜色+fill_opacity参数
                     page.insert_text(
-                        fitz.Point(x, y),
+                        fitz.Point(fallback_x, fallback_y),
                         text,
                         fontsize=font_size,
                         color=(color_r, color_g, color_b),  # RGB颜色
@@ -1590,6 +1637,192 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
 def add_watermark_to_existing_document(doc, text, font_size, angle, opacity, color, position):
     """废弃 - 现在在PDF阶段处理水印"""
     pass
+
+# 添加分类提示词设置管理API
+@app.get("/api/settings/classification-prompts")
+async def get_classification_prompts(db: Session = Depends(get_db)):
+    """获取分类提示词设置"""
+    try:
+        prompts = db.query(SystemSettings).filter(
+            SystemSettings.category == "ai_classification"
+        ).all()
+        
+        result = {}
+        for prompt in prompts:
+            result[prompt.setting_key] = {
+                "value": prompt.setting_value,
+                "description": prompt.description,
+                "is_editable": prompt.is_editable,
+                "requires_restart": prompt.requires_restart,
+                "updated_at": prompt.updated_at.isoformat() if prompt.updated_at else None
+            }
+        
+        return {"success": True, "prompts": result}
+    except Exception as e:
+        logger.error(f"获取分类提示词失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/settings/classification-prompts/{prompt_key}")
+async def update_classification_prompt(
+    prompt_key: str,
+    prompt_data: dict,
+    db: Session = Depends(get_db)
+):
+    """更新分类提示词"""
+    try:
+        # 验证prompt_key
+        allowed_keys = ["classification_vision_prompt", "classification_text_prompt"]
+        if prompt_key not in allowed_keys:
+            raise HTTPException(status_code=400, detail=f"不支持的提示词类型: {prompt_key}")
+        
+        # 获取设置
+        setting = db.query(SystemSettings).filter(
+            SystemSettings.setting_key == prompt_key
+        ).first()
+        
+        if not setting:
+            raise HTTPException(status_code=404, detail="提示词设置不存在")
+        
+        if not setting.is_editable:
+            raise HTTPException(status_code=400, detail="该设置不可编辑")
+        
+        # 更新值
+        new_value = prompt_data.get("value", "")
+        if not new_value.strip():
+            raise HTTPException(status_code=400, detail="提示词内容不能为空")
+        
+        setting.setting_value = new_value
+        setting.updated_at = func.now()
+        
+        db.commit()
+        
+        # 热重载AI服务配置
+        ai_service.reload_config()
+        
+        return {
+            "success": True,
+            "message": f"提示词 {prompt_key} 更新成功",
+            "updated_at": setting.updated_at.isoformat(),
+            "reloaded": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"更新分类提示词失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/settings/classification-prompts/reset/{prompt_key}")
+async def reset_classification_prompt(
+    prompt_key: str,
+    db: Session = Depends(get_db)
+):
+    """重置分类提示词为默认值"""
+    try:
+        # 验证prompt_key
+        allowed_keys = ["classification_vision_prompt", "classification_text_prompt"]
+        if prompt_key not in allowed_keys:
+            raise HTTPException(status_code=400, detail=f"不支持的提示词类型: {prompt_key}")
+        
+        # 获取设置
+        setting = db.query(SystemSettings).filter(
+            SystemSettings.setting_key == prompt_key
+        ).first()
+        
+        if not setting:
+            raise HTTPException(status_code=404, detail="提示词设置不存在")
+        
+        # 获取默认提示词
+        if prompt_key == "classification_vision_prompt":
+            default_prompt = ai_service._get_default_vision_prompt()
+        else:
+            default_prompt = ai_service._get_default_text_prompt()
+        
+        # 更新为默认值
+        setting.setting_value = default_prompt
+        setting.updated_at = func.now()
+        
+        db.commit()
+        
+        # 热重载AI服务配置
+        ai_service.reload_config()
+        
+        return {
+            "success": True,
+            "message": f"提示词 {prompt_key} 重置为默认值",
+            "updated_at": setting.updated_at.isoformat(),
+            "reloaded": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"重置分类提示词失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 检查EasyOCR是否可用
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+
+# EasyOCR管理API
+@app.get("/api/ocr/easyocr/status")
+async def get_easyocr_status():
+    """获取EasyOCR状态"""
+    try:
+        return {
+            "success": True,
+            "available": EASYOCR_AVAILABLE,
+            "enabled": ai_service.easyocr_enable,
+            "reader_initialized": ai_service.easyocr_reader is not None,
+            "model_path": ai_service.easyocr_model_path,
+            "languages": ai_service.easyocr_languages,
+            "use_gpu": ai_service.easyocr_use_gpu,
+            "proxy": ai_service.easyocr_download_proxy
+        }
+    except Exception as e:
+        logger.error(f"获取EasyOCR状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ocr/easyocr/download-models")
+async def download_easyocr_models():
+    """下载EasyOCR模型"""
+    try:
+        if not EASYOCR_AVAILABLE:
+            raise HTTPException(status_code=400, detail="EasyOCR不可用")
+        
+        result = await ai_service.download_easyocr_models()
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"下载EasyOCR模型失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ocr/easyocr/reload")
+async def reload_easyocr():
+    """重新加载EasyOCR配置"""
+    try:
+        ai_service.reload_config()
+        
+        return {
+            "success": True,
+            "message": "EasyOCR配置重新加载成功",
+            "enabled": ai_service.easyocr_enable,
+            "reader_initialized": ai_service.easyocr_reader is not None
+        }
+    except Exception as e:
+        logger.error(f"重新加载EasyOCR配置失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

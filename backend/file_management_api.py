@@ -253,7 +253,21 @@ async def upload_permanent_file(
         ).first()
         
         if existing_file:
-            raise HTTPException(status_code=409, detail="相同文件已存在于常驻文件中")
+            # 更新访问时间和计数，返回现有文件信息而不是抛出错误
+            existing_file.access_count += 1
+            existing_file.last_accessed = datetime.now()
+            db.commit()
+            
+            return {
+                "success": True,
+                "message": "相同文件已存在，返回现有文件信息",
+                "file_id": existing_file.id,
+                "display_name": existing_file.display_name,
+                "file_size": existing_file.file_size,
+                "category": existing_file.category,
+                "tags": existing_file.tags or [],
+                "is_duplicate": True
+            }
         
         # 生成存储路径
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -394,7 +408,17 @@ async def list_files(
             query = query.filter(ManagedFile.is_archived == False)
         
         if file_category:
-            query = query.filter(ManagedFile.file_category == file_category)
+            if file_category == "temporary":
+                # 查询所有临时文件类型
+                query = query.filter(
+                    or_(
+                        ManagedFile.file_category == "temporary",
+                        ManagedFile.file_category == "temporary_upload",
+                        ManagedFile.file_category == "temporary_generated"
+                    )
+                )
+            else:
+                query = query.filter(ManagedFile.file_category == file_category)
         
         if category:
             query = query.filter(ManagedFile.category == category)
@@ -484,7 +508,14 @@ async def get_file_stats(db: Session = Depends(get_db)):
         # 统计信息
         total_files = db.query(ManagedFile).filter(ManagedFile.is_archived == False).count()
         temp_files = db.query(ManagedFile).filter(
-            and_(ManagedFile.file_category == "temporary", ManagedFile.is_archived == False)
+            and_(
+                or_(
+                    ManagedFile.file_category == "temporary",
+                    ManagedFile.file_category == "temporary_upload",
+                    ManagedFile.file_category == "temporary_generated"
+                ),
+                ManagedFile.is_archived == False
+            )
         ).count()
         permanent_files = db.query(ManagedFile).filter(
             and_(ManagedFile.file_category == "permanent", ManagedFile.is_archived == False)
@@ -493,7 +524,14 @@ async def get_file_stats(db: Session = Depends(get_db)):
         # 存储大小统计
         total_size = db.query(func.sum(ManagedFile.file_size)).filter(ManagedFile.is_archived == False).scalar() or 0
         temp_size = db.query(func.sum(ManagedFile.file_size)).filter(
-            and_(ManagedFile.file_category == "temporary", ManagedFile.is_archived == False)
+            and_(
+                or_(
+                    ManagedFile.file_category == "temporary",
+                    ManagedFile.file_category == "temporary_upload",
+                    ManagedFile.file_category == "temporary_generated"
+                ),
+                ManagedFile.is_archived == False
+            )
         ).scalar() or 0
         permanent_size = db.query(func.sum(ManagedFile.file_size)).filter(
             and_(ManagedFile.file_category == "permanent", ManagedFile.is_archived == False)
@@ -578,8 +616,13 @@ async def get_category_suggestions():
                 },
                 {
                     "code": "qualification_certificate",
-                    "name": "资质证明文件", 
-                    "description": "律师执业证、事务所营业执照等资质证明"
+                    "name": "资质证照", 
+                    "description": "律师事务所执业许可证、营业执照等机构资质证明"
+                },
+                {
+                    "code": "lawyer_certificate",
+                    "name": "律师证",
+                    "description": "个人律师执业证书，包含律师姓名、执业证号等信息"
                 },
                 {
                     "code": "other",
@@ -587,7 +630,11 @@ async def get_category_suggestions():
                     "description": "不属于以上类别的其他文档"
                 }
             ],
-            "business_fields": ai_service.business_fields
+            "business_fields": ai_service.business_fields,
+            "lawyer_certificate_tags": {
+                "position": ["合伙人", "律师"],
+                "business_fields": ai_service.business_fields
+            }
         }
         
     except Exception as e:
@@ -679,6 +726,7 @@ async def update_file_info(
     tags: Optional[str] = Form(None),
     keywords: Optional[str] = Form(None),
     is_public: Optional[bool] = Form(None),
+    enable_ai_reanalysis: bool = Form(False),  # 是否重新进行AI分析
     db: Session = Depends(get_db)
 ):
     """更新文件信息"""
@@ -686,6 +734,15 @@ async def update_file_info(
         file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
         if not file:
             raise HTTPException(status_code=404, detail="文件不存在")
+        
+        # 记录更新前的信息
+        old_info = {
+            "display_name": file.display_name,
+            "category": file.category,
+            "description": file.description,
+            "tags": file.tags,
+            "keywords": file.keywords
+        }
         
         # 更新字段
         if display_name is not None:
@@ -707,17 +764,53 @@ async def update_file_info(
                 file.tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
         
         file.updated_at = datetime.now()
+        
+        # 如果启用AI重新分析
+        ai_result = None
+        if enable_ai_reanalysis and file.file_category == "permanent":
+            try:
+                from ai_service import ai_service
+                analysis_result = await ai_service.smart_document_analysis(
+                    file.storage_path, 
+                    enable_vision=True
+                )
+                if analysis_result.get("success"):
+                    ai_result = analysis_result["results"]["final_classification"]
+                    
+                    # 如果用户没有手动设置分类，使用AI分析结果
+                    if category is None and ai_result.get("category"):
+                        file.category = ai_result["category"]
+                    
+                    # 更新AI分析结果到处理结果中
+                    if not file.processing_result:
+                        file.processing_result = {}
+                    file.processing_result["ai_analysis"] = ai_result
+                    file.processing_result["last_analysis"] = datetime.now().isoformat()
+                    
+                    logger.info(f"文件 {file_id} AI重新分析完成: {ai_result.get('category')}")
+            except Exception as ai_err:
+                logger.warning(f"AI重新分析失败: {ai_err}")
+        
         db.commit()
         
         return {
-            "success": True,
-            "message": "文件信息更新成功"
+            "success": True, 
+            "message": "文件信息更新成功",
+            "ai_analysis": ai_result if enable_ai_reanalysis else None,
+            "updated_fields": {
+                "display_name": file.display_name,
+                "category": file.category,
+                "description": file.description,
+                "tags": file.tags,
+                "keywords": file.keywords
+            }
         }
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"更新文件信息失败: {str(e)}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"更新文件信息失败: {str(e)}")
 
 @router.delete("/{file_id}")
@@ -846,6 +939,16 @@ async def analyze_document_ai(
         
         suggested_tags = tag_result.get("suggested_tags", []) if tag_result.get("success") else []
         
+        # 处理律师证的特殊逻辑
+        lawyer_cert_created = None
+        if classification and classification.get("category") == "lawyer_certificate":
+            try:
+                lawyer_cert_created = await handle_lawyer_certificate_creation(
+                    file_record, classification, analysis_result, db
+                )
+            except Exception as lawyer_err:
+                logger.warning(f"创建律师证记录失败: {lawyer_err}")
+        
         # 如果需要，更新文件记录
         if force_reanalyze and classification:
             file_record.category = classification.get("category", file_record.category)
@@ -856,6 +959,12 @@ async def analyze_document_ai(
             if classification.get("description") and not file_record.description:
                 file_record.description = classification["description"]
             
+            # 更新处理结果
+            if not file_record.processing_result:
+                file_record.processing_result = {}
+            file_record.processing_result["ai_analysis"] = analysis_result
+            file_record.processing_result["classification"] = classification
+            
             db.commit()
         
         return {
@@ -864,7 +973,8 @@ async def analyze_document_ai(
             "analysis_result": analysis_result,
             "classification": classification,
             "suggested_tags": suggested_tags,
-            "updated": force_reanalyze
+            "updated": force_reanalyze,
+            "lawyer_certificate_created": lawyer_cert_created
         }
         
     except HTTPException:
@@ -918,6 +1028,92 @@ async def batch_analyze_documents(
     except Exception as e:
         logger.error(f"批量分析失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"批量分析失败: {str(e)}")
+
+async def handle_lawyer_certificate_creation(file_record, classification, analysis_result, db):
+    """处理律师证的创建逻辑"""
+    try:
+        from models import LawyerCertificate, LawyerCertificateFile
+        
+        # 提取律师证信息
+        lawyer_info = classification.get("lawyer_info", {})
+        key_entities = classification.get("key_entities", {})
+        
+        # 必要字段检查
+        lawyer_name = lawyer_info.get("name") or key_entities.get("holder_name")
+        certificate_number = lawyer_info.get("certificate_number") or key_entities.get("certificate_number")
+        law_firm = lawyer_info.get("law_firm") or classification.get("description", "")
+        
+        if not lawyer_name or not certificate_number:
+            logger.warning("律师证信息不完整，跳过创建")
+            return None
+        
+        # 检查是否已存在
+        existing = db.query(LawyerCertificate).filter(
+            LawyerCertificate.certificate_number == certificate_number
+        ).first()
+        
+        if existing:
+            logger.info(f"律师证已存在: {certificate_number}")
+            return {"id": existing.id, "action": "exists"}
+        
+        # 创建律师证记录
+        lawyer_cert = LawyerCertificate(
+            lawyer_name=lawyer_name,
+            certificate_number=certificate_number,
+            law_firm=law_firm,
+            issuing_authority=lawyer_info.get("issuing_authority"),
+            age=lawyer_info.get("age"),
+            id_number=lawyer_info.get("id_number"),
+            source_document=file_record.storage_path,
+            ai_analysis=analysis_result,
+            confidence_score=classification.get("confidence", 0.0),
+            extracted_text=analysis_result.get("results", {}).get("text_extraction_result", {}).get("extracted_content", {}).get("text", ""),
+            is_verified=False,
+            is_manual_input=False
+        )
+        
+        # 处理职位标签
+        position = "律师"  # 默认
+        if "合伙人" in str(classification.get("description", "")):
+            position = "合伙人"
+        lawyer_cert.position = position
+        lawyer_cert.position_tags = [position]
+        
+        # 处理业务领域标签
+        business_field = classification.get("business_field")
+        if business_field:
+            lawyer_cert.business_field_tags = [business_field]
+        
+        db.add(lawyer_cert)
+        db.flush()  # 获取ID
+        
+        # 创建文件关联
+        cert_file = LawyerCertificateFile(
+            certificate_id=lawyer_cert.id,
+            file_path=file_record.storage_path,
+            file_type="original",
+            file_name=file_record.original_filename,
+            file_size=file_record.file_size
+        )
+        
+        db.add(cert_file)
+        db.commit()
+        
+        logger.info(f"律师证创建成功: {lawyer_name} ({certificate_number})")
+        
+        return {
+            "id": lawyer_cert.id,
+            "action": "created",
+            "lawyer_name": lawyer_name,
+            "certificate_number": certificate_number,
+            "law_firm": law_firm,
+            "position": position
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"创建律师证记录失败: {str(e)}")
+        raise e
 
 def setup_router(app):
     app.include_router(router) 

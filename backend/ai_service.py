@@ -17,20 +17,31 @@ import httpx
 import asyncio
 from pathlib import Path
 
+# 配置日志（需要在其他导入之前）
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Docling相关导入
 try:
     from docling.document_converter import DocumentConverter
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import PdfPipelineOptions
     from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+    from docling.backend.abstract_backend import DeclarativeDocumentBackend
     DOCLING_AVAILABLE = True
-except ImportError:
-    logger.warning("Docling未安装，将使用备用文档处理方案")
+    logger.info("Docling模块可用")
+except ImportError as e:
     DOCLING_AVAILABLE = False
+    logger.warning(f"Docling模块不可用: {e}")
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# 检查EasyOCR是否可用
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    logger.info("EasyOCR模块可用")
+except ImportError as e:
+    EASYOCR_AVAILABLE = False
+    logger.warning(f"EasyOCR模块不可用: {e}")
 
 class AIService:
     """AI服务类，提供各种AI能力"""
@@ -53,7 +64,8 @@ class AIService:
         self.document_categories = {
             'performance_contract': '业绩合同',
             'award_certificate': '荣誉奖项',
-            'qualification_certificate': '资质证明文件',
+            'qualification_certificate': '资质证照',
+            'lawyer_certificate': '律师证',
             'other': '其他杂项'
         }
         
@@ -64,6 +76,38 @@ class AIService:
             '劳动与社会保障', '税务与财务', '新兴业务领域',
             '政府与公共事务', '跨境业务', '特殊行业'
         ]
+        
+        # 律师证标签配置
+        self.lawyer_certificate_tags = {
+            'position': ['合伙人', '律师'],  # 职位标签
+            'business_fields': self.business_fields  # 业务领域标签
+        }
+        
+        # Docling OCR配置（替代独立的EasyOCR）
+        self.enable_docling_ocr = True
+        self.docling_ocr_languages = ["ch_sim", "en"]
+        
+        # Ollama视觉配置
+        self.ollama_vision_base_url = ""
+        
+        # 文档分类配置（重复定义，保持一致）
+        self.document_categories = {
+            "performance_contract": "业绩合同",
+            "award_certificate": "荣誉奖项", 
+            "qualification_certificate": "资质证照",
+            "lawyer_certificate": "律师证",
+            "other": "其他杂项"
+        }
+        
+        # 业务领域列表
+        self.business_fields = [
+            "公司法律服务", "金融法律服务", "争议解决", "专业法律领域",
+            "基础设施与能源", "房地产与土地", "国际贸易与海事", "劳动与社会保障",
+            "税务与财务", "新兴业务领域", "政府与公共事务", "跨境业务"
+        ]
+        
+        # 加载配置
+        self.reload_config()
     
     def _get_setting_value(self, key: str, default: str = "") -> str:
         """从数据库获取设置值，如果不存在则返回环境变量或默认值"""
@@ -115,6 +159,15 @@ class AIService:
             if self.enable_ai:
                 self._init_ai_client()
                 
+            # 重新初始化视觉模型客户端
+            self._init_vision_client()
+            
+            # 重新初始化Docling转换器
+            self._init_docling_converter()
+            
+            # 重新初始化Docling转换器
+            self._init_docling_converter()
+            
             logger.info(f"AI服务配置重载完成，当前提供商: {self.ai_provider}")
             
         except Exception as e:
@@ -188,9 +241,9 @@ class AIService:
             if self.vision_provider == "ollama":
                 self.vision_client = openai.OpenAI(
                     api_key="ollama",
-                    base_url=self.vision_base_url or self._get_setting_value("ollama_vision_base_url", "http://localhost:11434/v1")
+                    base_url=self.ollama_vision_base_url or self._get_setting_value("ollama_vision_base_url", "http://localhost:11434/v1")
                 )
-                logger.info(f"Ollama视觉客户端初始化成功: {self.vision_base_url}")
+                logger.info(f"Ollama视觉客户端初始化成功: {self.ollama_vision_base_url}")
                 
             elif self.vision_provider == "openai":
                 self.vision_client = openai.OpenAI(
@@ -217,35 +270,193 @@ class AIService:
         try:
             # 配置PDF处理选项
             pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = True
+            pipeline_options.do_ocr = False  # 禁用OCR避免性能问题
             pipeline_options.do_table_structure = True
-            pipeline_options.table_structure_options.do_cell_matching = True
-            pipeline_options.ocr_options.lang = ["chi_sim", "eng"]
-            pipeline_options.ocr_options.use_gpu = False
             
-            # 配置加速选项
-            pipeline_options.accelerator_options = AcceleratorOptions(
-                num_threads=4, 
-                device=AcceleratorDevice.CPU
-            )
+            # 移除不兼容的配置项，避免backend错误
+            try:
+                pipeline_options.table_structure_options.do_cell_matching = True
+            except AttributeError:
+                # 如果该属性不存在，跳过
+                pass
+                
+            # 简化OCR配置
+            try:
+                if hasattr(pipeline_options, 'ocr_options'):
+                    pipeline_options.ocr_options.lang = ["chi_sim", "eng"]
+                    pipeline_options.ocr_options.use_gpu = False
+            except AttributeError:
+                # 如果OCR选项不可用，跳过
+                pass
             
-            # 创建转换器
+            # 创建转换器（使用简化配置）
             self.docling_converter = DocumentConverter(
                 format_options={
                     InputFormat.PDF: pipeline_options
                 }
             )
-            logger.info("Docling转换器初始化成功")
+            logger.info("Docling转换器初始化成功（简化配置）")
         except Exception as e:
-            logger.error(f"初始化Docling转换器失败: {e}")
-            self.docling_converter = None
+            logger.warning(f"Docling初始化失败，使用备用方案: {e}")
+            # 使用最简单的配置作为备用
+            try:
+                self.docling_converter = DocumentConverter()
+                logger.info("Docling转换器备用初始化成功")
+            except Exception as fallback_e:
+                logger.error(f"Docling备用初始化也失败: {fallback_e}")
+                self.docling_converter = None
+    
+    def _init_easyocr_reader(self):
+        """初始化EasyOCR读取器"""
+        if not self.easyocr_enable or not EASYOCR_AVAILABLE:
+            self.easyocr_reader = None
+            return
+            
+        try:
+            # 设置代理
+            if self.easyocr_download_proxy:
+                os.environ['http_proxy'] = self.easyocr_download_proxy
+                os.environ['https_proxy'] = self.easyocr_download_proxy
+                logger.info(f"设置EasyOCR下载代理: {self.easyocr_download_proxy}")
+            
+            # 设置模型路径
+            if self.easyocr_model_path:
+                os.environ['EASYOCR_MODULE_PATH'] = self.easyocr_model_path
+                # 确保模型目录存在
+                os.makedirs(self.easyocr_model_path, exist_ok=True)
+                logger.info(f"EasyOCR模型路径: {self.easyocr_model_path}")
+            
+            # 初始化读取器
+            logger.info("正在初始化EasyOCR读取器...")
+            self.easyocr_reader = easyocr.Reader(
+                self.easyocr_languages,
+                gpu=self.easyocr_use_gpu,
+                model_storage_directory=self.easyocr_model_path if self.easyocr_model_path else None,
+                download_enabled=True
+            )
+            logger.info(f"EasyOCR读取器初始化成功，支持语言: {self.easyocr_languages}")
+            
+            # 清除代理环境变量
+            if self.easyocr_download_proxy:
+                os.environ.pop('http_proxy', None)
+                os.environ.pop('https_proxy', None)
+                
+        except Exception as e:
+            logger.error(f"初始化EasyOCR读取器失败: {str(e)}")
+            self.easyocr_reader = None
+            # 清除代理环境变量
+            if self.easyocr_download_proxy:
+                os.environ.pop('http_proxy', None)
+                os.environ.pop('https_proxy', None)
+    
+    async def download_easyocr_models(self, progress_callback=None):
+        """手动下载EasyOCR模型"""
+        if not EASYOCR_AVAILABLE:
+            return {"success": False, "error": "EasyOCR不可用"}
+            
+        try:
+            # 设置代理
+            if self.easyocr_download_proxy:
+                os.environ['http_proxy'] = self.easyocr_download_proxy
+                os.environ['https_proxy'] = self.easyocr_download_proxy
+                logger.info(f"设置下载代理: {self.easyocr_download_proxy}")
+            
+            # 设置模型路径
+            if self.easyocr_model_path:
+                os.environ['EASYOCR_MODULE_PATH'] = self.easyocr_model_path
+                os.makedirs(self.easyocr_model_path, exist_ok=True)
+            
+            if progress_callback:
+                progress_callback({"status": "downloading", "progress": 10, "message": "开始下载模型..."})
+            
+            # 创建读取器（这会触发模型下载）
+            reader = easyocr.Reader(
+                self.easyocr_languages,
+                gpu=self.easyocr_use_gpu,
+                model_storage_directory=self.easyocr_model_path if self.easyocr_model_path else None,
+                download_enabled=True
+            )
+            
+            if progress_callback:
+                progress_callback({"status": "testing", "progress": 80, "message": "测试模型..."})
+            
+            # 测试模型是否工作
+            try:
+                import numpy as np
+                test_image = np.ones((100, 100, 3), dtype=np.uint8) * 255  # 白色图片
+            except ImportError:
+                # 如果numpy不可用，创建简单测试图片
+                test_image = "/tmp/test_image.png"
+                from PIL import Image
+                img = Image.new('RGB', (100, 100), color='white')
+                img.save(test_image)
+            result = reader.readtext(test_image)
+            
+            if progress_callback:
+                progress_callback({"status": "completed", "progress": 100, "message": "模型下载完成"})
+            
+            # 更新读取器
+            self.easyocr_reader = reader
+            
+            # 清除代理环境变量
+            if self.easyocr_download_proxy:
+                os.environ.pop('http_proxy', None)
+                os.environ.pop('https_proxy', None)
+            
+            return {
+                "success": True,
+                "message": f"EasyOCR模型下载成功，支持语言: {self.easyocr_languages}",
+                "model_path": self.easyocr_model_path
+            }
+            
+        except Exception as e:
+            # 清除代理环境变量
+            if self.easyocr_download_proxy:
+                os.environ.pop('http_proxy', None)
+                os.environ.pop('https_proxy', None)
+            
+            logger.error(f"EasyOCR模型下载失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
     async def extract_text_from_image(self, image_path: str) -> Dict:
         """从图片中提取文字"""
         try:
             start_time = time.time()
             
-            # 使用Tesseract OCR
+            # 优先使用EasyOCR
+            if self.easyocr_enable and self.easyocr_reader:
+                try:
+                    result = self.easyocr_reader.readtext(image_path)
+                    text_lines = []
+                    confidence_scores = []
+                    
+                    for (bbox, text, conf) in result:
+                        if text.strip():
+                            text_lines.append(text)
+                            confidence_scores.append(conf)
+                    
+                    full_text = "\n".join(text_lines)
+                    avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0.0
+                    
+                    processing_time = time.time() - start_time
+                    
+                    return {
+                        "text": full_text,
+                        "confidence": avg_confidence,
+                        "processing_time": processing_time,
+                        "method": "easyocr",
+                        "details": {
+                            "lines_detected": len(text_lines),
+                            "confidence_scores": confidence_scores
+                        }
+                    }
+                except Exception as e:
+                    logger.warning(f"EasyOCR处理失败，降级到Tesseract: {str(e)}")
+            
+            # 降级到Tesseract OCR
             image = cv2.imread(image_path)
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             
@@ -469,7 +680,7 @@ class AIService:
             raise Exception("AI客户端未初始化")
             
         try:
-            response = await self.ai_client.chat.completions.acreate(
+            response = self.ai_client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": prompt},
@@ -1025,40 +1236,64 @@ class AIService:
                 "error": str(e)
             }
     
-    async def smart_document_analysis(self, file_path: str, enable_vision: bool = True) -> Dict[str, Any]:
-        """智能文档分析 - 综合使用Docling和视觉模型"""
+    async def smart_document_analysis(self, file_path: str, enable_vision: bool = True, enable_ocr: bool = True) -> Dict[str, Any]:
+        """智能文档分析 - 综合使用文本提取、OCR和视觉模型"""
         try:
             start_time = time.time()
             
             results = {
                 "file_path": file_path,
-                "docling_result": None,
+                "text_extraction_result": None,
+                "ocr_result": None,
                 "vision_result": None,
+                "text_analysis_result": None,
                 "final_classification": None,
                 "confidence": 0.0
             }
             
-            # 1. 优先使用Docling分析
+            # 1. 文本提取（Docling或传统方法）
+            logger.info("开始文本提取...")
             if DOCLING_AVAILABLE and self.docling_converter:
                 logger.info("使用Docling进行文档分析...")
                 docling_result = await self.classify_document_with_docling(file_path)
-                results["docling_result"] = docling_result
+                results["text_extraction_result"] = docling_result
+            else:
+                # 使用备用文本提取
+                logger.info("使用备用文本提取方法...")
+                fallback_result = await self._fallback_document_classification(file_path)
+                results["text_extraction_result"] = fallback_result
             
-            # 2. 如果启用了视觉模型，进行视觉分析
+            # 2. OCR文本识别（针对图片或PDF文档）
+            if enable_ocr:
+                logger.info("开始OCR文本识别...")
+                ocr_result = await self._perform_ocr_analysis(file_path)
+                results["ocr_result"] = ocr_result
+            
+            # 3. 视觉模型分析
             if enable_vision and self.enable_ai:
                 logger.info("使用视觉模型进行文档分析...")
                 vision_result = await self.classify_document_with_vision(file_path)
                 results["vision_result"] = vision_result
             
-            # 3. 综合分析结果
-            final_classification = self._merge_classification_results(
-                results.get("docling_result", {}).get("classification"),
-                results.get("vision_result", {}).get("classification")
+            # 4. 文本模型分析（基于提取的文本内容）
+            if self.enable_ai:
+                logger.info("使用文本模型进行内容分析...")
+                text_analysis_result = await self._perform_text_analysis(results)
+                results["text_analysis_result"] = text_analysis_result
+            
+            # 5. 综合分析结果（多重验证）
+            final_classification = self._merge_multi_source_results(
+                text_extraction=results.get("text_extraction_result", {}).get("classification"),
+                ocr_analysis=results.get("ocr_result", {}).get("classification"),
+                vision_analysis=results.get("vision_result", {}).get("classification"),
+                text_analysis=results.get("text_analysis_result", {}).get("classification")
             )
             
             results["final_classification"] = final_classification
             results["confidence"] = final_classification.get("confidence", 0.0)
             results["processing_time"] = time.time() - start_time
+            
+            logger.info(f"智能文档分析完成，最终分类：{final_classification.get('category')}，置信度：{final_classification.get('confidence')}")
             
             return {
                 "success": True,
@@ -1072,6 +1307,212 @@ class AIService:
                 "error": str(e)
             }
     
+    async def _perform_ocr_analysis(self, file_path: str) -> Dict[str, Any]:
+        """执行OCR文本识别分析"""
+        try:
+            ocr_result = {
+                "success": False,
+                "text": "",
+                "confidence": 0.0,
+                "method": "none",
+                "classification": None
+            }
+            
+            # 判断文件类型
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+                # 图片文件直接OCR
+                text_result = await self.extract_text_from_image(file_path)
+                ocr_result.update({
+                    "success": True,
+                    "text": text_result.get("text", ""),
+                    "confidence": text_result.get("confidence", 0.0),
+                    "method": text_result.get("method", "tesseract")
+                })
+                
+            elif file_path.lower().endswith('.pdf'):
+                # PDF文件先转换为图片再OCR
+                temp_image_path = await self._convert_pdf_to_image(file_path, 0)
+                if temp_image_path:
+                    text_result = await self.extract_text_from_image(temp_image_path)
+                    ocr_result.update({
+                        "success": True,
+                        "text": text_result.get("text", ""),
+                        "confidence": text_result.get("confidence", 0.0),
+                        "method": text_result.get("method", "tesseract")
+                    })
+                    # 清理临时文件
+                    try:
+                        os.remove(temp_image_path)
+                    except:
+                        pass
+            
+            # 如果OCR成功提取到文本，进行分类分析
+            if ocr_result["success"] and ocr_result["text"].strip():
+                logger.info(f"OCR提取文本成功，长度：{len(ocr_result['text'])}字符")
+                classification = await self._classify_document_content(ocr_result["text"])
+                ocr_result["classification"] = classification
+            
+            return ocr_result
+            
+        except Exception as e:
+            logger.error(f"OCR分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "classification": {"category": "other", "confidence": 0.0}
+            }
+    
+    async def _perform_text_analysis(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """基于已提取的文本进行AI分析"""
+        try:
+            # 收集所有可用的文本内容
+            all_texts = []
+            
+            # 从文本提取结果中获取文本
+            text_extraction = results.get("text_extraction_result")
+            if text_extraction and text_extraction.get("success"):
+                extracted_content = text_extraction.get("extracted_content", {})
+                if isinstance(extracted_content, dict):
+                    if extracted_content.get("text"):
+                        all_texts.append(f"文档提取文本：\n{extracted_content['text']}")
+                    if extracted_content.get("tables"):
+                        all_texts.append(f"表格内容：\n{chr(10).join(extracted_content['tables'])}")
+                
+            # 从OCR结果中获取文本
+            ocr_result = results.get("ocr_result")
+            if ocr_result and ocr_result.get("success") and ocr_result.get("text"):
+                all_texts.append(f"OCR识别文本：\n{ocr_result['text']}")
+            
+            if not all_texts:
+                return {
+                    "success": False,
+                    "error": "没有找到可分析的文本内容",
+                    "classification": {"category": "other", "confidence": 0.0}
+                }
+            
+            # 合并所有文本进行分析
+            combined_text = "\n\n".join(all_texts)
+            logger.info(f"准备分析合并文本，总长度：{len(combined_text)}字符")
+            
+            # 调用AI进行文本分析
+            classification = await self._classify_document_content(combined_text)
+            
+            return {
+                "success": True,
+                "analyzed_text_length": len(combined_text),
+                "classification": classification
+            }
+            
+        except Exception as e:
+            logger.error(f"文本分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "classification": {"category": "other", "confidence": 0.0}
+            }
+    
+    def _merge_multi_source_results(self, text_extraction=None, ocr_analysis=None, vision_analysis=None, text_analysis=None) -> Dict[str, Any]:
+        """合并多种来源的分析结果"""
+        try:
+            # 收集所有结果
+            all_results = []
+            result_sources = []
+            
+            if text_extraction and text_extraction.get("category"):
+                all_results.append(text_extraction)
+                result_sources.append("text_extraction")
+            
+            if ocr_analysis and ocr_analysis.get("category"):
+                all_results.append(ocr_analysis)
+                result_sources.append("ocr")
+            
+            if vision_analysis and vision_analysis.get("category"):
+                all_results.append(vision_analysis)
+                result_sources.append("vision")
+            
+            if text_analysis and text_analysis.get("category"):
+                all_results.append(text_analysis)
+                result_sources.append("text_ai")
+            
+            if not all_results:
+                return {
+                    "category": "other",
+                    "confidence": 0.0,
+                    "source": "none",
+                    "reason": "没有有效的分析结果"
+                }
+            
+            # 专门处理律师证识别
+            lawyer_cert_results = [r for r in all_results if self._is_lawyer_certificate(r)]
+            if lawyer_cert_results:
+                # 如果有律师证识别结果，优先使用
+                best_lawyer_result = max(lawyer_cert_results, key=lambda x: x.get("confidence", 0))
+                best_lawyer_result["category"] = "lawyer_certificate"  # 确保分类正确
+                best_lawyer_result["source"] = f"lawyer_cert_detection_{result_sources[all_results.index(best_lawyer_result)]}"
+                
+                # 添加律师证相关的标签建议
+                suggested_tags = []
+                if "律师" in str(best_lawyer_result.get("description", "")):
+                    suggested_tags.append("律师")
+                if "合伙人" in str(best_lawyer_result.get("description", "")):
+                    suggested_tags.append("合伙人")
+                
+                best_lawyer_result["suggested_tags"] = suggested_tags
+                return best_lawyer_result
+            
+            # 按置信度排序，选择最佳结果
+            all_results.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+            best_result = all_results[0]
+            
+            # 如果最高置信度的结果置信度较低，进行一致性验证
+            if best_result.get("confidence", 0) < 0.7:
+                # 检查是否有多个结果一致
+                category_counts = {}
+                for result in all_results:
+                    category = result.get("category", "other")
+                    category_counts[category] = category_counts.get(category, 0) + 1
+                
+                # 如果有多个结果一致，提高置信度
+                most_common_category = max(category_counts.items(), key=lambda x: x[1])
+                if most_common_category[1] > 1:  # 有至少2个结果一致
+                    for result in all_results:
+                        if result.get("category") == most_common_category[0]:
+                            result["confidence"] = min(result.get("confidence", 0) + 0.2, 0.9)
+                            result["source"] = f"consensus_{len(result_sources)}_sources"
+                            return result
+            
+            # 记录分析来源
+            best_result["source"] = f"best_of_{len(result_sources)}_sources"
+            best_result["analysis_sources"] = result_sources
+            
+            return best_result
+            
+        except Exception as e:
+            logger.error(f"合并多源分析结果失败: {str(e)}")
+            return {
+                "category": "other",
+                "confidence": 0.0,
+                "source": "error",
+                "error": str(e)
+            }
+    
+    def _is_lawyer_certificate(self, result: Dict[str, Any]) -> bool:
+        """判断是否为律师证"""
+        if not result:
+            return False
+        
+        # 检查关键词
+        text_content = str(result.get("description", "")) + " " + str(result.get("keywords", []))
+        text_content = text_content.lower()
+        
+        lawyer_cert_keywords = [
+            "律师执业证", "执业证书", "律师证", "执业证号", 
+            "律师执业", "执业律师", "司法局", "司法厅",
+            "律师姓名", "执业机构", "证书编号"
+        ]
+        
+        return any(keyword in text_content for keyword in lawyer_cert_keywords)
+
     async def extract_document_tags(self, file_path: str, existing_tags: List[str] = None) -> Dict[str, Any]:
         """从文档中提取标签"""
         try:
@@ -1331,15 +1772,46 @@ class AIService:
             }
     
     def _get_document_classification_prompt(self) -> str:
-        """获取文档分类提示词"""
+        """获取文档分类提示词（从数据库读取）"""
+        try:
+            prompt = self._get_setting_value("classification_vision_prompt", "")
+            if not prompt:
+                # 如果数据库中没有，使用默认提示词
+                prompt = self._get_default_vision_prompt()
+                logger.warning("使用默认视觉分类提示词")
+            
+            # 替换业务领域占位符
+            if "{business_fields}" in prompt:
+                prompt = prompt.replace("{business_fields}", ', '.join(self.business_fields))
+            
+            return prompt
+        except Exception as e:
+            logger.error(f"获取分类提示词失败: {str(e)}")
+            return self._get_default_vision_prompt()
+    
+    def _get_default_vision_prompt(self) -> str:
+        """获取默认视觉分类提示词"""
         return f"""
 你是一个专业的法律文档分类专家。请分析这份文档图片，判断文档类型并提取关键信息。
 
-文档类型分类：
-1. performance_contract - 业绩合同：法律服务合同、委托协议等
-2. award_certificate - 荣誉奖项：各种法律行业奖项证书、排名认证等
-3. qualification_certificate - 资质证明文件：律师执业证、事务所营业执照等资质证明
-4. other - 其他杂项：不属于以上类别的其他文档
+文档类型分类（请仔细判断）：
+1. performance_contract - 业绩合同：法律服务合同、委托协议、顾问协议等
+2. award_certificate - 荣誉奖项：Chambers、Legal 500、Best Lawyers等法律行业奖项证书、排名认证等
+3. qualification_certificate - 资质证照：律师事务所执业许可证、营业执照、组织机构代码证等机构资质
+4. lawyer_certificate - 律师证：个人律师执业证书（包含律师姓名、执业证号、执业机构等信息）
+5. other - 其他杂项：不属于以上类别的其他文档
+
+特别注意分类规则：
+- 个人律师执业证书 → lawyer_certificate（律师证）
+- 律师事务所执业许可证 → qualification_certificate（资质证照）
+- 营业执照等机构证照 → qualification_certificate（资质证照）
+
+律师证特有字段（如果是律师证，请提取）：
+- 律师姓名
+- 执业证号
+- 执业机构
+- 发证机关（通常是司法局/司法厅）
+- 年龄/身份证号（如有显示）
 
 业务领域分类（如果适用）：
 {', '.join(self.business_fields)}
@@ -1350,38 +1822,60 @@ class AIService:
     "category_name": "文档类型中文名称",
     "business_field": "业务领域（如果适用）",
     "year": 年份,
-    "keywords": ["关键词1", "关键词2"],
+    "keywords": ["关键词1", "关键词2", "关键词3"],
     "confidence": 置信度(0-1),
-    "description": "文档描述"
+    "description": "文档描述和分类依据",
+    "specific_type": "具体类型（如：律师执业证、事务所许可证、Chambers排名等）",
+    "lawyer_info": {{
+        "name": "律师姓名（如果是律师证）",
+        "certificate_number": "执业证号（如果是律师证）",
+        "law_firm": "执业机构（如果是律师证）",
+        "issuing_authority": "发证机关（如果是律师证）",
+        "age": "年龄（如果显示）",
+        "id_number": "身份证号（如果显示）"
+    }}
 }}
-
-注意：
-1. 仔细观察文档的标题、格式、印章等特征
-2. 如果是获奖证书，重点识别奖项名称、颁发机构、年份
-3. 如果是合同文件，重点识别合同类型、业务领域
-4. 如果是资质证明，重点识别证明类型、有效期
-5. 置信度请根据识别的清晰度和确定性给出
 """
     
     def _get_comprehensive_classification_prompt(self) -> str:
-        """获取综合分类提示词"""
+        """获取综合分类提示词（从数据库读取）"""
+        try:
+            prompt = self._get_setting_value("classification_text_prompt", "")
+            if not prompt:
+                # 如果数据库中没有，使用默认提示词
+                prompt = self._get_default_text_prompt()
+                logger.warning("使用默认文本分类提示词")
+            
+            # 替换业务领域占位符
+            if "{business_fields}" in prompt:
+                prompt = prompt.replace("{business_fields}", ', '.join(self.business_fields))
+            
+            return prompt
+        except Exception as e:
+            logger.error(f"获取综合分类提示词失败: {str(e)}")
+            return self._get_default_text_prompt()
+    
+    def _get_default_text_prompt(self) -> str:
+        """获取默认文本分类提示词"""
         return f"""
 你是一个专业的法律文档分类专家。请基于提供的文档内容进行分类分析。
 
-文档类型分类：
-1. performance_contract - 业绩合同：法律服务合同、委托协议、服务协议等
-2. award_certificate - 荣誉奖项：Chambers、Legal 500等法律行业奖项证书、排名认证等
-3. qualification_certificate - 资质证明文件：律师执业证、事务所营业执照、行业认证等
-4. other - 其他杂项：不属于以上类别的其他文档
+文档类型分类（请仔细判断）：
+1. performance_contract - 业绩合同：法律服务合同、委托协议、顾问协议、服务协议等
+2. award_certificate - 荣誉奖项：Chambers、Legal 500、Best Lawyers、IFLR、Who's Who Legal等法律行业奖项证书、排名认证等
+3. qualification_certificate - 资质证照：律师事务所执业许可证、营业执照、组织机构代码证、统一社会信用代码证等机构资质
+4. lawyer_certificate - 律师证：个人律师执业证书（包含律师姓名、执业证号、执业机构等信息）
+5. other - 其他杂项：不属于以上类别的其他文档
+
+特别注意分类规则：
+- 个人律师执业证书 → lawyer_certificate（律师证）  
+- 律师事务所执业许可证 → qualification_certificate（资质证照）
+- 营业执照等机构证照 → qualification_certificate（资质证照）
+
+律师证关键词：律师执业证、执业证书、律师证、执业证号、律师姓名、执业机构、司法局、司法厅
 
 业务领域分类：
 {', '.join(self.business_fields)}
-
-分析要点：
-- 合同文件：查找"合同"、"协议"、"委托"、"服务费"、"甲方乙方"等关键词
-- 获奖证书：查找"奖项"、"排名"、"认证"、"Chambers"、"Legal 500"、"Best Lawyers"等
-- 资质证明：查找"执业证"、"营业执照"、"资质"、"认证"、"许可"等
-- 业务领域：根据具体业务内容判断属于哪个法律服务领域
 
 请按照以下JSON格式返回结果：
 {{
@@ -1392,11 +1886,23 @@ class AIService:
     "keywords": ["关键词1", "关键词2", "关键词3"],
     "confidence": 置信度(0-1),
     "description": "分类依据和文档描述",
+    "specific_type": "具体类型（如：律师执业证、事务所许可证、Chambers排名等）",
     "key_entities": {{
-        "client_name": "客户名称（如果是合同）",
+        "holder_name": "持证人/获奖方名称",
+        "issuer": "颁发/发证机构",
+        "certificate_number": "证书/许可证号（如果是资质证照）",
         "award_name": "奖项名称（如果是获奖）",
-        "issuer": "颁发机构（如果是证书）",
-        "amount": "合同金额（如果是合同）"
+        "client_name": "客户名称（如果是合同）",
+        "amount": "合同金额（如果是合同）",
+        "date_issued": "颁发/签署日期"
+    }},
+    "lawyer_info": {{
+        "name": "律师姓名（如果是律师证）",
+        "certificate_number": "执业证号（如果是律师证）",
+        "law_firm": "执业机构（如果是律师证）",
+        "issuing_authority": "发证机关（如果是律师证）",
+        "age": "年龄（如果显示）",
+        "id_number": "身份证号（如果显示）"
     }}
 }}
 """
@@ -1404,35 +1910,95 @@ class AIService:
     def _parse_classification_response(self, response: str) -> Dict[str, Any]:
         """解析分类响应（备用方法）"""
         try:
-            # 简单的关键词匹配分类
+            # 改进的关键词匹配分类（按优先级）
             response_lower = response.lower()
             
-            if any(word in response_lower for word in ['合同', '协议', '委托', '服务费']):
-                category = 'performance_contract'
-                confidence = 0.6
-            elif any(word in response_lower for word in ['奖项', '排名', 'chambers', 'legal 500', '认证']):
-                category = 'award_certificate'
-                confidence = 0.6
-            elif any(word in response_lower for word in ['执业证', '营业执照', '资质', '许可']):
+            # 优先级1：资质证照（最高优先级）
+            qualification_keywords = [
+                '律师执业证', '执业证书', '执业许可证', '律师事务所执业许可证',
+                '营业执照', '统一社会信用代码', '组织机构代码', 
+                '资质证明', '认证证书', '从业资格', '会员证书',
+                '司法局', '司法厅', '司法部', '市场监督管理局',
+                '证号', '许可证号', '执业证号', '信用代码'
+            ]
+            
+            # 优先级2：荣誉奖项
+            award_keywords = [
+                'chambers', 'legal 500', 'best lawyers', 'iflr', 'who\'s who legal',
+                '排名', '评级', '奖项', '荣誉', '推荐律师',
+                'ranked', 'recommended', 'leading', 'notable', 'rising star'
+            ]
+            
+            # 优先级3：业绩合同
+            contract_keywords = [
+                '合同', '协议', '委托书', '服务协议', '顾问协议',
+                '甲方', '乙方', '委托方', '受托方',
+                '服务费', '律师费', '顾问费', '合同金额',
+                '服务期限', '合同期限', '委托期间'
+            ]
+            
+            # 按优先级进行匹配
+            category = 'other'
+            confidence = 0.3
+            specific_type = None
+            
+            # 检查资质证照关键词（最高优先级）
+            qualification_matches = [kw for kw in qualification_keywords if kw in response_lower]
+            if qualification_matches:
                 category = 'qualification_certificate'
-                confidence = 0.6
-            else:
-                category = 'other'
-                confidence = 0.3
+                confidence = 0.7 + min(len(qualification_matches) * 0.1, 0.2)  # 0.7-0.9
+                
+                # 确定具体类型
+                if any(kw in response_lower for kw in ['律师执业证', '执业证书']):
+                    specific_type = '律师执业证'
+                elif any(kw in response_lower for kw in ['执业许可证', '律师事务所']):
+                    specific_type = '律师事务所执业许可证'
+                elif '营业执照' in response_lower:
+                    specific_type = '营业执照'
+                else:
+                    specific_type = '资质证照'
+            
+            # 检查荣誉奖项关键词
+            elif any(kw in response_lower for kw in award_keywords):
+                category = 'award_certificate'
+                award_matches = [kw for kw in award_keywords if kw in response_lower]
+                confidence = 0.6 + min(len(award_matches) * 0.1, 0.3)  # 0.6-0.9
+                
+                # 确定具体类型
+                if 'chambers' in response_lower:
+                    specific_type = 'Chambers排名'
+                elif 'legal 500' in response_lower:
+                    specific_type = 'Legal 500排名'
+                elif 'best lawyers' in response_lower:
+                    specific_type = 'Best Lawyers排名'
+                else:
+                    specific_type = '法律行业奖项'
+            
+            # 检查合同关键词
+            elif any(kw in response_lower for kw in contract_keywords):
+                category = 'performance_contract'
+                contract_matches = [kw for kw in contract_keywords if kw in response_lower]
+                confidence = 0.6 + min(len(contract_matches) * 0.1, 0.2)  # 0.6-0.8
+                specific_type = '法律服务合同'
             
             # 尝试提取年份
             import re
             year_match = re.search(r'20\d{2}', response)
             year = int(year_match.group()) if year_match else None
             
+            # 提取关键词用于标签
+            all_keywords = qualification_keywords + award_keywords + contract_keywords
+            found_keywords = [kw for kw in all_keywords if kw in response_lower][:3]
+            
             return {
                 "category": category,
-                "category_name": self.document_categories[category],
+                "category_name": self.document_categories.get(category, category),
                 "business_field": None,
                 "year": year,
-                "keywords": [],
+                "keywords": found_keywords,
                 "confidence": confidence,
-                "description": "基于关键词匹配的分类结果",
+                "description": f"基于关键词匹配的分类结果，匹配到：{', '.join(found_keywords) if found_keywords else '无明确关键词'}",
+                "specific_type": specific_type,
                 "raw_text": response
             }
             
@@ -1442,6 +2008,7 @@ class AIService:
                 "category": "other",
                 "category_name": "其他杂项",
                 "confidence": 0.0,
+                "description": f"分类解析失败: {str(e)}",
                 "error": str(e)
             }
 

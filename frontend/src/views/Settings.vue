@@ -416,6 +416,381 @@
         </el-form>
       </el-card>
 
+      <!-- 分类提示词设置 -->
+      <el-card class="settings-card prompt-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon prompt-icon">
+                <el-icon><EditPen /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>分类提示词管理</h3>
+                <span class="card-subtitle">自定义AI文档分类的提示词模板</span>
+              </div>
+            </div>
+            <el-dropdown @command="handlePromptCommand" class="prompt-actions">
+              <el-button type="primary" size="default">
+                提示词操作
+                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="refresh">
+                    <el-icon><Refresh /></el-icon>
+                    刷新提示词
+                  </el-dropdown-item>
+                  <el-dropdown-item command="reset-vision" divided>
+                    <el-icon><RefreshLeft /></el-icon>
+                    重置视觉提示词
+                  </el-dropdown-item>
+                  <el-dropdown-item command="reset-text">
+                    <el-icon><RefreshLeft /></el-icon>
+                    重置文本提示词
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </template>
+
+        <div class="prompt-content">
+          <el-tabs v-model="activePromptTab" class="prompt-tabs">
+            <!-- 视觉分类提示词 -->
+            <el-tab-pane label="视觉分类提示词" name="vision" lazy>
+              <div class="prompt-tab-content">
+                <div class="prompt-info">
+                  <el-alert
+                    title="视觉分类提示词用于分析图片类型的文档（如证书、合同扫描件等）"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                  />
+                </div>
+                <div class="prompt-editor">
+                  <el-input
+                    v-model="classificationPrompts.vision.value"
+                    type="textarea"
+                    :rows="20"
+                    placeholder="编辑视觉分类提示词..."
+                    class="prompt-textarea"
+                    :disabled="promptLoading"
+                  />
+                  <div class="prompt-meta">
+                    <span class="prompt-updated">
+                      <el-icon><Clock /></el-icon>
+                      最后更新: {{ formatDate(classificationPrompts.vision.updated_at) }}
+                    </span>
+                    <div class="prompt-actions">
+                      <el-button 
+                        type="success" 
+                        @click="savePrompt('classification_vision_prompt')"
+                        :loading="promptSaving"
+                        size="default"
+                      >
+                        <el-icon><Check /></el-icon>
+                        保存并热重载
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+
+            <!-- 文本分类提示词 -->
+            <el-tab-pane label="文本分类提示词" name="text" lazy>
+              <div class="prompt-tab-content">
+                <div class="prompt-info">
+                  <el-alert
+                    title="文本分类提示词用于分析已提取文本内容的文档分类"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                  />
+                </div>
+                <div class="prompt-editor">
+                  <el-input
+                    v-model="classificationPrompts.text.value"
+                    type="textarea"
+                    :rows="20"
+                    placeholder="编辑文本分类提示词..."
+                    class="prompt-textarea"
+                    :disabled="promptLoading"
+                  />
+                  <div class="prompt-meta">
+                    <span class="prompt-updated">
+                      <el-icon><Clock /></el-icon>
+                      最后更新: {{ formatDate(classificationPrompts.text.updated_at) }}
+                    </span>
+                    <div class="prompt-actions">
+                      <el-button 
+                        type="success" 
+                        @click="savePrompt('classification_text_prompt')"
+                        :loading="promptSaving"
+                        size="default"
+                      >
+                        <el-icon><Check /></el-icon>
+                        保存并热重载
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+        </div>
+      </el-card>
+
+      <!-- Docling OCR设置 -->
+      <el-card class="settings-card ocr-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon ocr-icon">
+                <el-icon><View /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>智能OCR配置</h3>
+                <span class="card-subtitle">基于Docling的文档OCR识别，提升文档分析准确性</span>
+              </div>
+            </div>
+            <div class="ocr-status">
+              <el-tag 
+                :type="ocrStatus.docling_available ? 'success' : 'danger'"
+                class="status-tag"
+                size="large"
+              >
+                <el-icon><CircleCheckFilled v-if="ocrStatus.docling_available" /><CircleCloseFilled v-else /></el-icon>
+                {{ ocrStatus.docling_available ? 'Docling可用' : 'Docling不可用' }}
+              </el-tag>
+              <el-button 
+                type="primary" 
+                size="default"
+                @click="refreshOCRStatus"
+                :loading="ocrStatusLoading"
+                class="refresh-btn"
+              >
+                <el-icon><Refresh /></el-icon>
+                刷新状态
+              </el-button>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="!ocrStatus.docling_available" class="ocr-unavailable">
+          <el-result
+            icon="warning"
+            title="Docling不可用"
+            sub-title="Docling库未安装或配置错误，请检查Docker容器环境配置"
+          >
+            <template #extra>
+              <el-button type="primary" @click="refreshOCRStatus">
+                <el-icon><Refresh /></el-icon>
+                重新检测
+              </el-button>
+            </template>
+          </el-result>
+        </div>
+
+        <el-form v-else :model="ocrSettings" label-width="140px" class="settings-form">
+          <div class="form-group">
+            <el-form-item label="启用智能OCR">
+              <div class="ocr-enable-section">
+                <el-switch
+                  v-model="ocrSettings.easyocr_enable"
+                  active-text="启用EasyOCR"
+                  inactive-text="使用Tesseract"
+                  size="large"
+                  @change="handleOCRToggle"
+                  :loading="ocrToggleLoading"
+                />
+                <div class="ocr-comparison">
+                  <div class="ocr-option">
+                    <div class="option-header">
+                      <el-tag type="info" size="small">传统OCR</el-tag>
+                      <span class="option-name">Tesseract</span>
+                    </div>
+                    <ul class="option-features">
+                      <li>✓ 轻量级，启动快</li>
+                      <li>✓ 无需下载额外模型</li>
+                      <li>⚠ 精度相对较低</li>
+                    </ul>
+                  </div>
+                  <div class="ocr-option">
+                    <div class="option-header">
+                      <el-tag type="success" size="small">智能OCR</el-tag>
+                      <span class="option-name">EasyOCR</span>
+                    </div>
+                    <ul class="option-features">
+                      <li>✓ 高精度识别</li>
+                      <li>✓ 支持多种语言</li>
+                      <li>⚠ 需要下载模型文件</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                启用EasyOCR可显著提高文档识别准确性，特别适合律师执业证等重要文档的解析
+              </div>
+            </el-form-item>
+
+            <template v-if="ocrSettings.easyocr_enable">
+              <el-form-item label="模型存储路径">
+                <el-input 
+                  v-model="ocrSettings.easyocr_model_path" 
+                  placeholder="/app/easyocr_models"
+                  class="full-width"
+                >
+                  <template #prefix>
+                    <el-icon><Folder /></el-icon>
+                  </template>
+                </el-input>
+                <div class="form-help">
+                  <el-icon><InfoFilled /></el-icon>
+                  EasyOCR模型文件的存储目录
+                </div>
+              </el-form-item>
+
+              <el-form-item label="下载代理">
+                <el-input 
+                  v-model="ocrSettings.easyocr_download_proxy" 
+                  placeholder="http://proxy.example.com:8080"
+                  class="full-width"
+                >
+                  <template #prefix>
+                    <el-icon><Link /></el-icon>
+                  </template>
+                </el-input>
+                <div class="form-help">
+                  <el-icon><InfoFilled /></el-icon>
+                  下载模型时使用的代理地址，留空则直连
+                </div>
+              </el-form-item>
+
+              <el-form-item label="支持语言">
+                <el-select 
+                  v-model="ocrSettings.easyocr_languages" 
+                  multiple 
+                  placeholder="选择支持的语言"
+                  class="full-width"
+                >
+                  <el-option label="简体中文" value="ch_sim" />
+                  <el-option label="繁体中文" value="ch_tra" />
+                  <el-option label="英语" value="en" />
+                  <el-option label="日语" value="ja" />
+                  <el-option label="韩语" value="ko" />
+                </el-select>
+                <div class="form-help">
+                  <el-icon><InfoFilled /></el-icon>
+                  选择需要识别的语言，将下载对应的模型文件
+                </div>
+              </el-form-item>
+
+              <el-form-item label="GPU加速">
+                <el-switch
+                  v-model="ocrSettings.easyocr_use_gpu"
+                  active-text="启用"
+                  inactive-text="禁用"
+                />
+                <div class="form-help">
+                  <el-icon><InfoFilled /></el-icon>
+                  使用GPU加速OCR处理（需要CUDA支持）
+                </div>
+              </el-form-item>
+
+              <el-form-item label="状态信息">
+                <div class="ocr-status-info">
+                  <div class="status-item">
+                    <span class="status-label">模型初始化:</span>
+                    <el-tag :type="ocrStatus.reader_initialized ? 'success' : 'warning'">
+                      {{ ocrStatus.reader_initialized ? '已初始化' : '未初始化' }}
+                    </el-tag>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">支持语言:</span>
+                    <span class="status-value">{{ Array.isArray(ocrStatus.languages) ? ocrStatus.languages.join(', ') : ocrStatus.languages }}</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">GPU模式:</span>
+                    <el-tag :type="ocrStatus.use_gpu ? 'success' : 'info'">
+                      {{ ocrStatus.use_gpu ? '已启用' : '未启用' }}
+                    </el-tag>
+                  </div>
+                </div>
+              </el-form-item>
+
+              <el-form-item label="模型管理">
+                <div class="model-management">
+                  <div class="model-status-card">
+                    <div class="status-header">
+                      <el-icon class="status-icon"><FolderOpened /></el-icon>
+                      <span class="status-title">模型状态</span>
+                    </div>
+                    <div class="status-grid">
+                      <div class="status-item">
+                        <span class="status-label">初始化状态:</span>
+                        <el-tag :type="ocrStatus.reader_initialized ? 'success' : 'warning'">
+                          {{ ocrStatus.reader_initialized ? '已就绪' : '未初始化' }}
+                        </el-tag>
+                      </div>
+                      <div class="status-item">
+                        <span class="status-label">支持语言:</span>
+                        <el-tag 
+                          v-for="lang in formatLanguages(ocrStatus.languages)" 
+                          :key="lang" 
+                          type="info" 
+                          size="small"
+                          class="lang-tag"
+                        >
+                          {{ lang }}
+                        </el-tag>
+                      </div>
+                      <div class="status-item">
+                        <span class="status-label">GPU加速:</span>
+                        <el-tag :type="ocrStatus.use_gpu ? 'success' : 'info'">
+                          {{ ocrStatus.use_gpu ? '已启用' : '未启用' }}
+                        </el-tag>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="model-actions">
+                    <el-button 
+                      type="primary" 
+                      @click="downloadModels"
+                      :loading="modelDownloading"
+                      class="action-btn"
+                    >
+                      <el-icon><Download /></el-icon>
+                      {{ ocrStatus.reader_initialized ? '更新模型' : '下载模型' }}
+                    </el-button>
+                    <el-button 
+                      type="default" 
+                      @click="reloadOCR"
+                      :loading="ocrReloading"
+                      class="action-btn"
+                    >
+                      <el-icon><RefreshLeft /></el-icon>
+                      重新加载
+                    </el-button>
+                    <el-button 
+                      type="success" 
+                      @click="saveOCRSettings"
+                      :loading="saving"
+                      class="action-btn"
+                    >
+                      <el-icon><Check /></el-icon>
+                      保存配置
+                    </el-button>
+                  </div>
+                </div>
+              </el-form-item>
+            </template>
+          </div>
+        </el-form>
+      </el-card>
+
       <!-- 操作按钮 -->
       <div class="action-buttons">
         <el-button type="success" size="large" @click="saveAllSettings" :loading="saving" class="primary-action">
@@ -440,7 +815,9 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Setting, Upload, Camera, View, Check, InfoFilled, Document, 
-  Key, Link, Monitor, Files, Timer, RefreshLeft, Refresh 
+  Key, Link, Monitor, Files, Timer, RefreshLeft, Refresh,
+  EditPen, ArrowDown, Clock, Folder, Download, FolderOpened,
+  CircleCheckFilled, CircleCloseFilled
 } from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
 
@@ -474,6 +851,45 @@ const uploadSettings = ref({
 const screenshotSettings = ref({
   screenshot_timeout: '30',
   screenshot_max_pages: '20'
+})
+
+// 分类提示词相关
+const activePromptTab = ref('vision')
+const promptLoading = ref(false)
+const promptSaving = ref(false)
+const classificationPrompts = ref({
+  vision: {
+    value: '',
+    description: '',
+    updated_at: null
+  },
+  text: {
+    value: '',
+    description: '',
+    updated_at: null
+  }
+})
+
+// EasyOCR相关
+const ocrStatusLoading = ref(false)
+const modelDownloading = ref(false)
+const ocrReloading = ref(false)
+const ocrStatus = ref({
+  available: false,
+  enabled: false,
+  reader_initialized: false,
+  model_path: '',
+  languages: [],
+  use_gpu: false,
+  proxy: ''
+})
+
+const ocrSettings = ref({
+  easyocr_enable: false,
+  easyocr_model_path: '/app/easyocr_models',
+  easyocr_download_proxy: '',
+  easyocr_languages: ['ch_sim', 'en'],
+  easyocr_use_gpu: false
 })
 
 // 动态帮助函数
@@ -560,6 +976,26 @@ const loadSettings = async () => {
           screenshotSettings.value[key] = settings[key].value
         }
       })
+      
+      // 填充OCR设置
+      Object.keys(ocrSettings.value).forEach(key => {
+        if (settings[key]) {
+          if (key === 'easyocr_languages') {
+            // 处理语言数组
+            let value = settings[key].value
+            if (typeof value === 'string') {
+              try {
+                value = JSON.parse(value)
+              } catch {
+                value = ['ch_sim', 'en']
+              }
+            }
+            ocrSettings.value[key] = Array.isArray(value) ? value : ['ch_sim', 'en']
+          } else {
+            ocrSettings.value[key] = settings[key].value
+          }
+        }
+      })
     }
   } catch (error) {
     console.error('加载设置失败:', error)
@@ -572,14 +1008,38 @@ const loadSettings = async () => {
 const saveAISettings = async () => {
   try {
     saving.value = true
-    const response = await apiService.updateSettings(aiSettings.value)
+    console.log('🔧 开始保存AI设置:', aiSettings.value)
+    console.log('🌐 当前API baseURL:', apiService.defaults?.baseURL || 'axios实例获取中...')
     
-    if (response.success) {
-      ElMessage.success('AI设置保存成功')
+    const response = await apiService.updateSettings(aiSettings.value)
+    console.log('✅ AI设置保存响应:', response)
+    
+    const data = response?.data || response;
+    if (data && data.success) {
+      ElMessage.success({
+        message: `AI设置保存成功！更新了 ${data.updated_settings?.length || 0} 个设置`,
+        duration: 3000
+      })
+      console.log('🔄 重新加载设置以确保同步...')
+      // 重新加载设置以确保同步
+      await loadSettings()
+    } else {
+      console.error('❌ 保存响应失败:', data)
+      ElMessage.error(data?.message || 'AI设置保存失败')
     }
   } catch (error) {
-    console.error('保存AI设置失败:', error)
-    ElMessage.error('保存AI设置失败')
+    console.error('❌ 保存AI设置失败:', error)
+    console.error('错误详情:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      config: error.config
+    })
+    const errorMsg = error.response?.data?.detail || error.message || '保存AI设置失败'
+    ElMessage.error({
+      message: `保存失败: ${errorMsg}`,
+      duration: 5000
+    })
   } finally {
     saving.value = false
   }
@@ -677,14 +1137,23 @@ const saveAllSettings = async () => {
       allSettings.vision_api_key = ''
     }
     
-    const response = await apiService.updateSettings(allSettings)
+    console.log('保存所有设置:', allSettings)
     
-    if (response.success) {
-      ElMessage.success('所有设置保存成功')
+    const response = await apiService.updateSettings(allSettings)
+    console.log('保存响应:', response)
+    
+    if (response && response.success) {
+      ElMessage.success(`所有设置保存成功！更新了 ${response.updated_settings?.length || 0} 个设置`)
+      // 重新加载设置以确保同步
+      await loadSettings()
+    } else {
+      console.error('保存响应失败:', response)
+      ElMessage.error(response?.message || '保存设置失败')
     }
   } catch (error) {
     console.error('保存设置失败:', error)
-    ElMessage.error('保存设置失败')
+    const errorMsg = error.response?.data?.detail || error.message || '保存设置失败'
+    ElMessage.error(errorMsg)
   } finally {
     saving.value = false
   }
@@ -723,9 +1192,274 @@ const refreshSettings = () => {
   loadSettings()
 }
 
+// 新增方法
+// 加载分类提示词
+const loadClassificationPrompts = async () => {
+  try {
+    promptLoading.value = true
+    const response = await apiService.get('/api/settings/classification-prompts')
+    
+    if (response.success) {
+      const prompts = response.prompts
+      if (prompts.classification_vision_prompt) {
+        classificationPrompts.value.vision = {
+          value: prompts.classification_vision_prompt.value,
+          description: prompts.classification_vision_prompt.description,
+          updated_at: prompts.classification_vision_prompt.updated_at
+        }
+      }
+      if (prompts.classification_text_prompt) {
+        classificationPrompts.value.text = {
+          value: prompts.classification_text_prompt.value,
+          description: prompts.classification_text_prompt.description,
+          updated_at: prompts.classification_text_prompt.updated_at
+        }
+      }
+    }
+  } catch (error) {
+    console.error('加载分类提示词失败:', error)
+    ElMessage.error('加载分类提示词失败: ' + (error.message || '未知错误'))
+  } finally {
+    promptLoading.value = false
+  }
+}
+
+// 保存提示词
+const savePrompt = async (promptKey) => {
+  try {
+    promptSaving.value = true
+    const promptType = promptKey === 'classification_vision_prompt' ? 'vision' : 'text'
+    const promptValue = classificationPrompts.value[promptType].value
+    
+    if (!promptValue.trim()) {
+      ElMessage.error('提示词内容不能为空')
+      return
+    }
+    
+    const response = await apiService.put(`/api/settings/classification-prompts/${promptKey}`, {
+      value: promptValue
+    })
+    
+    if (response.success) {
+      ElMessage.success('提示词保存成功，AI服务已热重载')
+      classificationPrompts.value[promptType].updated_at = response.updated_at
+    }
+  } catch (error) {
+    console.error('保存提示词失败:', error)
+    ElMessage.error('保存提示词失败: ' + (error.message || '未知错误'))
+  } finally {
+    promptSaving.value = false
+  }
+}
+
+// 处理提示词命令
+const handlePromptCommand = async (command) => {
+  switch (command) {
+    case 'refresh':
+      await loadClassificationPrompts()
+      ElMessage.success('提示词已刷新')
+      break
+    case 'reset-vision':
+      await resetPrompt('classification_vision_prompt')
+      break
+    case 'reset-text':
+      await resetPrompt('classification_text_prompt')
+      break
+  }
+}
+
+// 重置提示词
+const resetPrompt = async (promptKey) => {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将恢复提示词为默认值，是否继续？',
+      '确认重置提示词',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    promptSaving.value = true
+    const response = await apiService.post(`/api/settings/classification-prompts/reset/${promptKey}`)
+    
+    if (response.success) {
+      ElMessage.success('提示词重置成功')
+      await loadClassificationPrompts()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('重置提示词失败:', error)
+      ElMessage.error('重置提示词失败: ' + (error.message || '未知错误'))
+    }
+  } finally {
+    promptSaving.value = false
+  }
+}
+
+// 刷新OCR状态
+const refreshOCRStatus = async () => {
+  try {
+    ocrStatusLoading.value = true
+    const response = await apiService.get('/api/ocr/easyocr/status')
+    
+    if (response.success) {
+      ocrStatus.value = {
+        available: response.available,
+        enabled: response.enabled,
+        reader_initialized: response.reader_initialized,
+        model_path: response.model_path,
+        languages: response.languages,
+        use_gpu: response.use_gpu,
+        proxy: response.proxy
+      }
+    }
+  } catch (error) {
+    console.error('获取OCR状态失败:', error)
+    ElMessage.error('获取OCR状态失败: ' + (error.message || '未知错误'))
+  } finally {
+    ocrStatusLoading.value = false
+  }
+}
+
+// 下载EasyOCR模型
+const downloadModels = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将下载EasyOCR模型文件，可能需要较长时间，是否继续？',
+      '确认下载模型',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'info'
+      }
+    )
+    
+    modelDownloading.value = true
+    const response = await apiService.post('/api/ocr/easyocr/download-models')
+    
+    if (response.success) {
+      ElMessage.success('EasyOCR模型下载成功')
+      await refreshOCRStatus()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('下载模型失败:', error)
+      ElMessage.error('下载模型失败: ' + (error.message || '未知错误'))
+    }
+  } finally {
+    modelDownloading.value = false
+  }
+}
+
+// 重新加载OCR配置
+const reloadOCR = async () => {
+  try {
+    ocrReloading.value = true
+    const response = await apiService.post('/api/ocr/easyocr/reload')
+    
+    if (response.success) {
+      ElMessage.success('OCR配置重新加载成功')
+      await refreshOCRStatus()
+    }
+  } catch (error) {
+    console.error('重新加载OCR配置失败:', error)
+    ElMessage.error('重新加载OCR配置失败: ' + (error.message || '未知错误'))
+  } finally {
+    ocrReloading.value = false
+  }
+}
+
+// OCR切换处理
+const ocrToggleLoading = ref(false)
+
+const handleOCRToggle = async (enabled) => {
+  try {
+    ocrToggleLoading.value = true
+    await saveOCRSettings()
+    if (enabled) {
+      ElMessage.info('EasyOCR已启用，建议下载/更新模型以获得最佳效果')
+    } else {
+      ElMessage.info('已切换到Tesseract OCR模式')
+    }
+  } catch (error) {
+    // 切换失败时回退状态
+    ocrSettings.value.easyocr_enable = !enabled
+  } finally {
+    ocrToggleLoading.value = false
+  }
+}
+
+const formatLanguages = (languages) => {
+  if (!languages) return []
+  if (typeof languages === 'string') {
+    try {
+      languages = JSON.parse(languages)
+    } catch {
+      return [languages]
+    }
+  }
+  if (Array.isArray(languages)) {
+    return languages.map(lang => {
+      switch(lang) {
+        case 'ch_sim': return '简体中文'
+        case 'ch_tra': return '繁体中文'  
+        case 'en': return '英语'
+        case 'ja': return '日语'
+        case 'ko': return '韩语'
+        default: return lang
+      }
+    })
+  }
+  return []
+}
+
+// 保存OCR设置
+const saveOCRSettings = async () => {
+  try {
+    saving.value = true
+    
+    // 构建OCR设置数据
+    const ocrData = {
+      easyocr_enable: ocrSettings.value.easyocr_enable,
+      easyocr_model_path: ocrSettings.value.easyocr_model_path,
+      easyocr_download_proxy: ocrSettings.value.easyocr_download_proxy,
+      easyocr_languages: JSON.stringify(ocrSettings.value.easyocr_languages),
+      easyocr_use_gpu: ocrSettings.value.easyocr_use_gpu
+    }
+    
+    const response = await apiService.updateSettings(ocrData)
+    
+    if (response.success) {
+      ElMessage.success('OCR设置保存成功')
+      // 重新加载OCR配置
+      await reloadOCR()
+    }
+  } catch (error) {
+    console.error('保存OCR设置失败:', error)
+    ElMessage.error('保存OCR设置失败: ' + (error.message || '未知错误'))
+    throw error
+  } finally {
+    saving.value = false
+  }
+}
+
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return '未知'
+  try {
+    return new Date(dateStr).toLocaleString('zh-CN')
+  } catch (e) {
+    return '未知'
+  }
+}
+
 // 生命周期
-onMounted(() => {
-  loadSettings()
+onMounted(async () => {
+  await loadSettings()
+  await loadClassificationPrompts()
+  await refreshOCRStatus()
 })
 </script>
 
@@ -1019,6 +1753,327 @@ onMounted(() => {
   flex-direction: column;
 }
 
+/* 分类提示词样式 */
+.prompt-card :deep(.el-card__header) {
+  background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+  color: white;
+}
+
+.prompt-icon {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* OCR样式 */
+.ocr-card :deep(.el-card__header) {
+  background: linear-gradient(135deg, #6190e8 0%, #a7bfe8 100%);
+  color: white;
+}
+
+.ocr-icon {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.ocr-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refresh-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  backdrop-filter: blur(10px);
+}
+
+.refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: white;
+}
+
+.ocr-enable-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ocr-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.ocr-option {
+  padding: 16px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.option-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.option-name {
+  font-weight: 600;
+  color: #303133;
+}
+
+.option-features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.option-features li {
+  padding: 4px 0;
+  line-height: 1.4;
+}
+
+.model-management {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.model-status-card {
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.status-icon {
+  color: #409eff;
+}
+
+.status-title {
+  font-weight: 600;
+  color: #303133;
+}
+
+.status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.status-label {
+  font-weight: 500;
+  color: #606266;
+  min-width: 100px;
+}
+
+.lang-tag {
+  margin-left: 4px;
+}
+
+.model-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.action-btn {
+  flex: 1;
+  min-width: 120px;
+}
+
+.ocr-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.ocr-status-info .status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.ocr-status-info .status-item:last-child {
+  border-bottom: none;
+}
+
+.status-value {
+  color: #606266;
+  font-size: 14px;
+}
+
+.prompt-actions {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.prompt-content {
+  padding: 24px;
+}
+
+.prompt-tabs :deep(.el-tabs__header) {
+  margin-bottom: 20px;
+}
+
+.prompt-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.prompt-info {
+  margin-bottom: 16px;
+}
+
+.prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.prompt-textarea :deep(.el-textarea__inner) {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 8px;
+  border: 2px solid #e4e7ed;
+  transition: border-color 0.3s ease;
+}
+
+.prompt-textarea :deep(.el-textarea__inner:focus) {
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1);
+}
+
+.prompt-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid #e4e7ed;
+}
+
+.prompt-updated {
+  color: #909399;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* EasyOCR样式 */
+.ocr-card :deep(.el-card__header) {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.ocr-icon {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.ocr-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-tag {
+  font-weight: 600;
+}
+
+.refresh-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  backdrop-filter: blur(10px);
+}
+
+.refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: white;
+}
+
+.ocr-unavailable {
+  padding: 20px;
+}
+
+.ocr-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-label {
+  font-weight: 600;
+  color: #495057;
+  min-width: 100px;
+}
+
+.status-value {
+  color: #6c757d;
+  font-family: monospace;
+}
+
+.model-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.model-actions .el-button {
+  flex: 1;
+  min-width: 140px;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .settings-container {
@@ -1045,6 +2100,33 @@ onMounted(() => {
   .tertiary-action {
     width: 100%;
     max-width: 300px;
+  }
+  
+  .card-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+  
+  .prompt-meta {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+  
+  .model-actions {
+    flex-direction: column;
+  }
+  
+  .model-actions .el-button {
+    flex: none;
+    width: 100%;
+  }
+  
+  .ocr-status {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
   }
 }
 </style> 

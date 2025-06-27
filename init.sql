@@ -10,6 +10,50 @@ ALTER DATABASE bidder_db SET default_text_search_config = 'pg_catalog.simple';
 -- 创建扩展
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 创建律师证表（如果不存在）
+-- 这个表用于存储律师执业证书信息
+CREATE TABLE IF NOT EXISTS lawyer_certificates (
+    id SERIAL PRIMARY KEY,
+    lawyer_name VARCHAR(100) NOT NULL,
+    certificate_number VARCHAR(100) NOT NULL UNIQUE,
+    law_firm VARCHAR(300) NOT NULL,
+    issuing_authority VARCHAR(200),
+    age INTEGER,
+    id_number VARCHAR(20),
+    issue_date TIMESTAMP,
+    position VARCHAR(50),
+    position_tags JSON DEFAULT '[]',
+    business_field_tags JSON DEFAULT '[]',
+    custom_tags JSON DEFAULT '[]',
+    source_document VARCHAR(500),
+    ai_analysis JSON,
+    confidence_score FLOAT,
+    extracted_text TEXT,
+    is_verified BOOLEAN DEFAULT FALSE,
+    is_manual_input BOOLEAN DEFAULT FALSE,
+    verification_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建律师证文件表（如果不存在）
+CREATE TABLE IF NOT EXISTS lawyer_certificate_files (
+    id SERIAL PRIMARY KEY,
+    certificate_id INTEGER REFERENCES lawyer_certificates(id) ON DELETE CASCADE,
+    file_path VARCHAR(500) NOT NULL,
+    file_type VARCHAR(50),
+    file_name VARCHAR(255),
+    file_size INTEGER,
+    page_number INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 创建律师证相关索引
+CREATE INDEX IF NOT EXISTS idx_lawyer_certificates_name ON lawyer_certificates(lawyer_name);
+CREATE INDEX IF NOT EXISTS idx_lawyer_certificates_cert_num ON lawyer_certificates(certificate_number);
+CREATE INDEX IF NOT EXISTS idx_lawyer_certificates_law_firm ON lawyer_certificates(law_firm);
+CREATE INDEX IF NOT EXISTS idx_lawyer_certificate_files_cert_id ON lawyer_certificate_files(certificate_id);
+
 -- 插入初始厂牌数据
 -- 这些数据将由应用启动时的Python代码插入，这里只做参考
 

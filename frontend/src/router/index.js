@@ -55,6 +55,7 @@ const routes = isProduction ? [
     component: () => import('@/views/AwardSearch.vue'),
     meta: { title: 'AI自动检索奖项' }
   },
+  
   {
     path: '/ai-assistant',
     name: 'AIAssistant',

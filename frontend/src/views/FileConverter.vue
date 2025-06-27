@@ -4,7 +4,7 @@
     <div class="page-hero">
       <div class="hero-content">
         <div class="hero-icon">
-          <el-icon><Document /></el-icon>
+        <el-icon><Document /></el-icon>
         </div>
         <div class="hero-text">
           <h1>文件转Word工具</h1>
@@ -30,10 +30,10 @@
           <div class="config-panel">
             <!-- 文档设置卡片 -->
             <div class="config-card document-card">
-              <div class="card-header">
+          <div class="card-header">
                 <div class="header-icon">
                   <el-icon><Setting /></el-icon>
-                </div>
+          </div>
                 <div class="header-text">
                   <h3>文档配置</h3>
                   <p>设置文档标题和结构</p>
@@ -45,13 +45,13 @@
                     <el-icon><Edit /></el-icon>
                     文档标题
                   </label>
-                  <el-input 
-                    v-model="form.documentTitle" 
-                    placeholder="请输入生成的Word文档标题"
+                <el-input 
+                  v-model="form.documentTitle" 
+                  placeholder="请输入生成的Word文档标题"
                     class="modern-input"
                   />
                 </div>
-                
+              
                 <div class="form-row">
                   <div class="form-group">
                     <div class="switch-group">
@@ -64,15 +64,15 @@
                     <div v-if="form.showMainTitle" class="level-selector">
                       <el-select v-model="form.mainTitleLevel" placeholder="大纲级别">
                         <el-option label="标题1 (最高级)" :value="1" />
-                        <el-option label="标题2" :value="2" />
-                        <el-option label="标题3" :value="3" />
-                        <el-option label="标题4" :value="4" />
-                        <el-option label="标题5" :value="5" />
+                      <el-option label="标题2" :value="2" />
+                      <el-option label="标题3" :value="3" />
+                      <el-option label="标题4" :value="4" />
+                      <el-option label="标题5" :value="5" />
                         <el-option label="标题6 (最低级)" :value="6" />
-                      </el-select>
+                    </el-select>
                     </div>
                   </div>
-                  
+              
                   <div class="form-group">
                     <div class="switch-group">
                       <el-switch v-model="form.showFileTitles" />
@@ -84,13 +84,13 @@
                     <div v-if="form.showFileTitles" class="level-selector">
                       <el-select v-model="form.fileTitleLevel" placeholder="大纲级别">
                         <el-option label="标题1 (最高级)" :value="1" />
-                        <el-option label="标题2" :value="2" />
-                        <el-option label="标题3" :value="3" />
-                        <el-option label="标题4" :value="4" />
-                        <el-option label="标题5" :value="5" />
+                      <el-option label="标题2" :value="2" />
+                      <el-option label="标题3" :value="3" />
+                      <el-option label="标题4" :value="4" />
+                      <el-option label="标题5" :value="5" />
                         <el-option label="标题6 (最低级)" :value="6" />
-                      </el-select>
-                    </div>
+                    </el-select>
+                </div>
                   </div>
                 </div>
               </div>
@@ -107,12 +107,12 @@
                   <p>为文档添加个性化水印</p>
                 </div>
                 <div class="header-control">
-                  <el-switch 
-                    v-model="form.enableWatermark" 
+                <el-switch 
+                  v-model="form.enableWatermark" 
                     size="large"
                     active-text="启用"
-                    inactive-text="关闭"
-                  />
+                  inactive-text="关闭"
+                />
                 </div>
               </div>
               
@@ -131,7 +131,7 @@
                       show-word-limit
                     />
                   </div>
-                  
+
                   <div class="position-selector">
                     <label class="form-label">
                       <el-icon><Aim /></el-icon>
@@ -140,19 +140,19 @@
                     <div class="position-grid">
                       <div class="position-main">
                         <el-radio-group v-model="form.watermarkPosition" class="position-buttons">
-                          <el-radio-button value="center">
-                            <el-icon><Aim /></el-icon>
+                      <el-radio-button value="center">
+                        <el-icon><Aim /></el-icon>
                             居中
-                          </el-radio-button>
-                          <el-radio-button value="repeat">
-                            <el-icon><Grid /></el-icon>
+                      </el-radio-button>
+                      <el-radio-button value="repeat">
+                        <el-icon><Grid /></el-icon>
                             平铺
-                          </el-radio-button>
-                          <el-radio-button value="background">
-                            <el-icon><Picture /></el-icon>
+                      </el-radio-button>
+                      <el-radio-button value="background">
+                        <el-icon><Picture /></el-icon>
                             背景
-                          </el-radio-button>
-                        </el-radio-group>
+                      </el-radio-button>
+                    </el-radio-group>
                       </div>
                       <div class="position-corners">
                         <el-radio-group v-model="form.watermarkPosition" class="corner-buttons">
@@ -160,12 +160,12 @@
                           <el-radio-button value="top-right">右上</el-radio-button>
                           <el-radio-button value="bottom-left">左下</el-radio-button>
                           <el-radio-button value="bottom-right">右下</el-radio-button>
-                        </el-radio-group>
+                    </el-radio-group>
                       </div>
                     </div>
                   </div>
                 </div>
-                
+
                 <div class="watermark-style">
                   <div class="style-grid">
                     <div class="style-item">
@@ -186,7 +186,7 @@
                         <span class="unit">px</span>
                       </div>
                     </div>
-                    
+
                     <div class="style-item">
                       <label class="style-label">
                         <el-icon><Refresh /></el-icon>
@@ -205,7 +205,7 @@
                         <span class="unit">°</span>
                       </div>
                     </div>
-                    
+
                     <div class="style-item">
                       <label class="style-label">
                         <el-icon><View /></el-icon>
@@ -224,7 +224,7 @@
                         <span class="unit">%</span>
                       </div>
                     </div>
-                    
+
                     <div class="style-item">
                       <label class="style-label">
                         <el-icon><Brush /></el-icon>
@@ -238,32 +238,32 @@
                           size="large"
                         />
                         <div class="color-info">
-                          <span class="color-preview" :style="{ backgroundColor: form.watermarkColor }"></span>
-                          <span class="color-value">{{ form.watermarkColor }}</span>
-                        </div>
+                        <span class="color-preview" :style="{ backgroundColor: form.watermarkColor }"></span>
+                        <span class="color-value">{{ form.watermarkColor }}</span>
                       </div>
                     </div>
                   </div>
-                  
-                  <div class="watermark-preview">
-                    <div class="preview-header">
-                      <el-icon><View /></el-icon>
-                      预览效果
-                    </div>
+                </div>
+
+                <div class="watermark-preview">
+                  <div class="preview-header">
+                    <el-icon><View /></el-icon>
+                    预览效果
+                  </div>
                     <div class="preview-area">
-                      <div 
-                        class="preview-watermark"
-                        :style="{
-                          fontSize: Math.max(form.watermarkFontSize / 3, 12) + 'px',
-                          color: form.watermarkColor,
-                          opacity: form.watermarkOpacity / 100,
-                          transform: `rotate(${form.watermarkAngle}deg)`
-                        }"
-                      >
-                        {{ form.watermarkText || '水印预览' }}
-                      </div>
+                    <div 
+                      class="preview-watermark"
+                      :style="{
+                        fontSize: Math.max(form.watermarkFontSize / 3, 12) + 'px',
+                        color: form.watermarkColor,
+                        opacity: form.watermarkOpacity / 100,
+                        transform: `rotate(${form.watermarkAngle}deg)`
+                      }"
+                    >
+                      {{ form.watermarkText || '水印预览' }}
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
             </div>
@@ -280,16 +280,16 @@
                 </div>
               </div>
               <div class="card-content">
-                <FileUpload
-                  ref="fileUploadRef"
-                  :allowed-types="['pdf', 'image']"
-                  :multiple="true"
-                  :max-size="MAX_UPLOAD_SIZE"
-                  accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff"
-                  @upload="handleFilesSelected"
-                  @change="handleFileChange"
-                />
-                
+            <FileUpload
+              ref="fileUploadRef"
+              :allowed-types="['pdf', 'image']"
+              :multiple="true"
+              :max-size="MAX_UPLOAD_SIZE"
+              accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff"
+              @upload="handleFilesSelected"
+              @change="handleFileChange"
+            />
+            
                 <!-- 常驻文件选择 -->
                 <div class="permanent-section">
                   <div class="section-header">
@@ -352,17 +352,17 @@
                     <el-icon><Brush /></el-icon>
                     {{ areAllWatermarksEnabled() ? '全部关闭水印' : '全部开启水印' }}
                   </el-button>
-                  <el-button size="small" text type="danger" @click="clearAllFiles">
-                    <el-icon><Delete /></el-icon>
+                <el-button size="small" text type="danger" @click="clearAllFiles">
+                  <el-icon><Delete /></el-icon>
                     清空
-                  </el-button>
-                </div>
+                </el-button>
+              </div>
               </div>
               <div class="card-content">
                 <div class="files-grid">
                   <div
-                    v-for="(file, index) in allSelectedFiles"
-                    :key="`selected-${index}`"
+                  v-for="(file, index) in allSelectedFiles"
+                  :key="`selected-${index}`"
                     class="file-card"
                   >
                     <div class="file-index">{{ index + 1 }}</div>
@@ -373,7 +373,7 @@
                     <div class="file-controls">
                       <el-switch
                         v-model="file.enableWatermark"
-                        size="small"
+                  size="small"
                         active-text="水印"
                       />
                       <el-button
@@ -381,10 +381,10 @@
                         text
                         type="danger"
                         @click="removeSelectedFile(index)"
-                      >
+                >
                         <el-icon><Delete /></el-icon>
                       </el-button>
-                    </div>
+              </div>
                   </div>
                 </div>
               </div>
@@ -403,26 +403,26 @@
                 <el-icon><DocumentAdd /></el-icon>
                 开始转换为Word文档
               </el-button>
-            </div>
           </div>
-        </el-col>
+        </div>
+      </el-col>
 
-        <!-- 右侧结果区域 -->
+      <!-- 右侧结果区域 -->
         <el-col :lg="8" :md="24">
           <div class="result-panel">
             <div class="result-card">
-              <div class="card-header">
+          <div class="card-header">
                 <div class="header-icon result-icon">
                   <el-icon><Monitor /></el-icon>
-                </div>
+          </div>
                 <div class="header-text">
                   <h3>转换结果</h3>
                   <p>查看转换进度和下载文件</p>
                 </div>
               </div>
               <div class="card-content result-content">
-                <!-- 转换进度 -->
-                <div v-if="converting" class="converting-status">
+            <!-- 转换进度 -->
+            <div v-if="converting" class="converting-status">
                   <div class="progress-wrapper">
                     <div class="progress-icon">
                       <el-icon class="rotating"><Loading /></el-icon>
@@ -432,8 +432,8 @@
                       <p>请稍候，正在处理您的文件</p>
                     </div>
                   </div>
-                  <el-progress 
-                    :percentage="convertProgress" 
+              <el-progress 
+                :percentage="convertProgress" 
                     :stroke-width="8"
                     :color="[
                       { color: '#f56c6c', percentage: 20 },
@@ -443,10 +443,10 @@
                       { color: '#6f7ad3', percentage: 100 }
                     ]"
                   />
-                </div>
+            </div>
 
-                <!-- 转换成功 -->
-                <div v-else-if="convertResult?.success" class="result-success">
+            <!-- 转换成功 -->
+            <div v-else-if="convertResult?.success" class="result-success">
                   <div class="success-icon">
                     <el-icon><CircleCheck /></el-icon>
                   </div>
@@ -460,31 +460,31 @@
                         <span class="value">{{ convertResult.output_file }}</span>
                       </div>
                       
-                      <div v-if="convertResult.processed_files?.length" class="processed-files">
+                    <div v-if="convertResult.processed_files?.length" class="processed-files">
                         <span class="label">处理的文件:</span>
                         <div class="file-tags">
-                          <el-tag
-                            v-for="(file, index) in convertResult.processed_files"
-                            :key="`file-${index}`"
-                            size="small"
+                      <el-tag
+                        v-for="(file, index) in convertResult.processed_files"
+                        :key="`file-${index}`"
+                        size="small"
                             effect="light"
-                          >
-                            {{ file }}
-                          </el-tag>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div class="action-buttons">
-                      <el-button 
-                        type="success" 
-                        size="large"
-                        @click="downloadFile"
-                        class="download-btn"
                       >
-                        <el-icon><Download /></el-icon>
-                        下载Word文档
-                      </el-button>
+                        {{ file }}
+                      </el-tag>
+                        </div>
+                    </div>
+                  </div>
+                  
+                    <div class="action-buttons">
+                  <el-button 
+                    type="success" 
+                    size="large"
+                    @click="downloadFile"
+                        class="download-btn"
+                  >
+                    <el-icon><Download /></el-icon>
+                    下载Word文档
+                  </el-button>
                       <el-button 
                         text
                         @click="resetConverter"
@@ -494,24 +494,24 @@
                       </el-button>
                     </div>
                   </div>
-                </div>
+            </div>
 
-                <!-- 转换失败 -->
-                <div v-else-if="convertResult?.success === false" class="result-error">
+            <!-- 转换失败 -->
+            <div v-else-if="convertResult?.success === false" class="result-error">
                   <div class="error-icon">
                     <el-icon><CircleClose /></el-icon>
                   </div>
                   <div class="error-content">
                     <h3>转换失败</h3>
                     <p>{{ convertResult.message }}</p>
-                    <el-button type="primary" @click="resetConverter">
+                  <el-button type="primary" @click="resetConverter">
                       <el-icon><Refresh /></el-icon>
-                      重新开始
-                    </el-button>
+                    重新开始
+                  </el-button>
                   </div>
-                </div>
+            </div>
 
-                <!-- 初始状态 -->
+            <!-- 初始状态 -->
                 <div v-else class="result-empty">
                   <div class="empty-icon">
                     <el-icon><Document /></el-icon>
@@ -524,11 +524,11 @@
                       <div class="feature-item">
                         <el-icon><Check /></el-icon>
                         <span>支持PDF、图片格式</span>
-                      </div>
+              </div>
                       <div class="feature-item">
                         <el-icon><Check /></el-icon>
                         <span>智能水印配置</span>
-                      </div>
+            </div>
                       <div class="feature-item">
                         <el-icon><Check /></el-icon>
                         <span>自定义标题结构</span>
@@ -541,11 +541,11 @@
                   </div>
                 </div>
               </div>
-            </div>
           </div>
-        </el-col>
-      </el-row>
-    </div>
+        </div>
+      </el-col>
+    </el-row>
+      </div>
 
     <!-- 常驻文件选择对话框 -->
     <el-dialog v-model="showPermanentFilesDialog" title="选择常驻文件" width="800px">
@@ -576,7 +576,7 @@
             <el-option label="参考资料" value="reference"></el-option>
             <el-option label="其他" value="other"></el-option>
           </el-select>
-        </div>
+              </div>
         
         <!-- 文件列表 -->
         <el-table 
@@ -584,7 +584,7 @@
           v-loading="permanentFilesLoading" 
           max-height="400"
           @selection-change="handlePermanentFileSelection"
-        >
+                  >
           <el-table-column type="selection" width="55" />
           <el-table-column label="文件名" min-width="200">
             <template #default="scope">
@@ -779,12 +779,12 @@ const areAllWatermarksEnabled = () => {
 // 切换所有文件的水印状态
 const toggleAllWatermarks = () => {
   const newState = !areAllWatermarksEnabled()
-  
+    
   // 更新上传的文件
-  allSelectedFiles.value.forEach(file => {
+    allSelectedFiles.value.forEach(file => {
     file.enableWatermark = newState
   })
-  
+    
   // 更新常驻文件
   selectedPermanentFiles.value.forEach(file => {
     file.enableWatermark = newState
@@ -1157,44 +1157,44 @@ watch(() => form.enableWatermark, (newValue) => {
     rgba(168, 85, 247, 0.8) 50%, 
     rgba(236, 72, 153, 0.8) 100%);
   color: white;
-  padding: 40px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  padding: 24px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   
   .hero-content {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     
     .hero-icon {
-      width: 80px;
-      height: 80px;
+      width: 56px;
+      height: 56px;
       background: rgba(255, 255, 255, 0.2);
-      border-radius: 20px;
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
       backdrop-filter: blur(10px);
       
       .el-icon {
-        font-size: 40px;
-      }
+        font-size: 28px;
     }
-    
+  }
+  
     .hero-text {
       h1 {
-        margin: 0 0 8px 0;
-        font-size: 32px;
+        margin: 0 0 4px 0;
+        font-size: 24px;
         font-weight: 700;
         text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
       
       p {
         margin: 0;
-        font-size: 16px;
+        font-size: 14px;
         opacity: 0.9;
       }
     }
@@ -1202,23 +1202,23 @@ watch(() => form.enableWatermark, (newValue) => {
   
   .hero-stats {
     display: flex;
-    gap: 30px;
+    gap: 20px;
     
     .stat-item {
       text-align: center;
       
       .stat-number {
         display: block;
-        font-size: 28px;
+        font-size: 20px;
         font-weight: 700;
         line-height: 1;
       }
       
       .stat-label {
         display: block;
-        font-size: 14px;
+    font-size: 12px;
         opacity: 0.8;
-        margin-top: 4px;
+        margin-top: 2px;
       }
     }
   }
@@ -1226,50 +1226,50 @@ watch(() => form.enableWatermark, (newValue) => {
 
 // 页面内容区域
 .page-content {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 0 20px 40px;
+  padding: 0 16px 24px;
 }
 
 // 配置面板
 .config-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
 }
 
 // 配置卡片通用样式
 .config-card {
   background: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   overflow: hidden;
   transition: all 0.3s ease;
   border: 1px solid rgba(0, 0, 0, 0.06);
   
   &:hover {
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
-    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-1px);
   }
   
   .card-header {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 24px;
+    gap: 12px;
+    padding: 16px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     position: relative;
     
     .header-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
       
       .el-icon {
-        font-size: 24px;
+        font-size: 18px;
         color: white;
       }
       
@@ -1298,15 +1298,15 @@ watch(() => form.enableWatermark, (newValue) => {
       flex: 1;
       
       h3 {
-        margin: 0 0 4px 0;
-        font-size: 18px;
-        font-weight: 600;
+        margin: 0 0 2px 0;
+    font-size: 16px;
+    font-weight: 600;
         color: var(--el-text-color-primary);
       }
       
       p {
         margin: 0;
-        font-size: 14px;
+        font-size: 12px;
         color: var(--el-text-color-regular);
       }
     }
@@ -1314,38 +1314,38 @@ watch(() => form.enableWatermark, (newValue) => {
     .header-control,
     .header-controls {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
   }
   
   .card-content {
-    padding: 24px;
+    padding: 16px;
   }
 }
 
 // 表单组件样式
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   
   .form-label {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-    font-size: 14px;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--el-text-color-primary);
     
     .el-icon {
       color: var(--el-color-primary);
-    }
   }
-  
+}
+
   .modern-input {
     :deep(.el-input__wrapper) {
-      border-radius: 10px;
-      border: 2px solid var(--el-border-color-light);
+    border-radius: 8px;
+      border: 1px solid var(--el-border-color-light);
       transition: all 0.3s ease;
       
       &:hover {
@@ -1354,7 +1354,7 @@ watch(() => form.enableWatermark, (newValue) => {
       
       &.is-focus {
         border-color: var(--el-color-primary);
-        box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+        box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1);
       }
     }
   }
@@ -1363,19 +1363,19 @@ watch(() => form.enableWatermark, (newValue) => {
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 14px;
 }
 
 // 开关组样式
 .switch-group {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 10px;
   
   .switch-text {
-    flex: 1;
-    
+      flex: 1;
+      
     .switch-title {
       display: block;
       font-weight: 500;
@@ -1385,7 +1385,7 @@ watch(() => form.enableWatermark, (newValue) => {
     
     .switch-desc {
       display: block;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--el-text-color-regular);
     }
   }
@@ -1393,10 +1393,10 @@ watch(() => form.enableWatermark, (newValue) => {
 
 .level-selector {
   :deep(.el-select) {
-    width: 100%;
+        width: 100%;
     
     .el-select__wrapper {
-      border-radius: 8px;
+        border-radius: 8px;
     }
   }
 }
@@ -1404,157 +1404,157 @@ watch(() => form.enableWatermark, (newValue) => {
 // 水印配置样式
 .watermark-content {
   .watermark-basic {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
   }
   
   .position-selector {
     .position-grid {
-      display: flex;
+    display: flex;
       flex-direction: column;
-      gap: 12px;
-      
+      gap: 8px;
+    
       .position-buttons,
       .corner-buttons {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         
         :deep(.el-radio-button) {
-          flex: 1;
-          
+      flex: 1;
+      
           .el-radio-button__inner {
-            width: 100%;
-            border-radius: 8px;
+        width: 100%;
+        border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
-            font-size: 13px;
-            padding: 8px 12px;
+            gap: 3px;
+        font-size: 12px;
+            padding: 6px 8px;
           }
         }
       }
       
       .corner-buttons {
         :deep(.el-radio-button__inner) {
-          font-size: 12px;
-          padding: 6px 8px;
-        }
+          font-size: 11px;
+          padding: 4px 6px;
       }
     }
   }
-  
+}
+
   .style-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 20px;
-    margin-bottom: 24px;
-    
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+
     .style-item {
       .style-label {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 8px;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--el-text-color-primary);
-        
-        .el-icon {
-          color: var(--el-color-primary);
-        }
-      }
-      
+    display: flex;
+    align-items: center;
+        gap: 4px;
+        margin-bottom: 6px;
+        font-size: 12px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    
+    .el-icon {
+      color: var(--el-color-primary);
+    }
+  }
+  
       .slider-control {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        
+    display: flex;
+    align-items: center;
+        gap: 6px;
+    
         :deep(.el-slider) {
-          flex: 1;
-        }
-        
+      flex: 1;
+    }
+    
         .unit {
-          font-size: 12px;
+          font-size: 11px;
           color: var(--el-text-color-regular);
-          min-width: 20px;
-        }
-      }
-      
+          min-width: 18px;
+    }
+  }
+  
       .color-control {
         display: flex;
-        align-items: center;
-        gap: 12px;
+    align-items: center;
+        gap: 8px;
         
         .color-info {
           display: flex;
           align-items: center;
-          gap: 8px;
-          
-          .color-preview {
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            border: 1px solid var(--el-border-color);
-          }
-          
-          .color-value {
-            font-size: 12px;
+          gap: 6px;
+    
+    .color-preview {
+            width: 20px;
+            height: 20px;
+      border-radius: 4px;
+      border: 1px solid var(--el-border-color);
+    }
+    
+    .color-value {
+            font-size: 10px;
             font-family: monospace;
             color: var(--el-text-color-regular);
           }
         }
-      }
+    }
+  }
+}
+
+.watermark-preview {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  
+  .preview-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.8);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+      font-size: 12px;
+    font-weight: 500;
+    color: var(--el-text-color-primary);
+    
+    .el-icon {
+      color: var(--el-color-primary);
     }
   }
   
-  .watermark-preview {
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    border-radius: 12px;
-    overflow: hidden;
-    
-    .preview-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 16px;
-      background: rgba(255, 255, 255, 0.8);
-      border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--el-text-color-primary);
-      
-      .el-icon {
-        color: var(--el-color-primary);
-      }
-    }
-    
     .preview-area {
-      height: 100px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
       position: relative;
       
       &::before {
         content: '';
         position: absolute;
         inset: 0;
-        background: repeating-linear-gradient(
-          45deg,
-          transparent,
-          transparent 8px,
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 8px,
           rgba(255, 255, 255, 0.5) 8px,
           rgba(255, 255, 255, 0.5) 16px
-        );
+    );
       }
-      
-      .preview-watermark {
-        font-family: '楷体', 'KaiTi', serif;
-        font-weight: bold;
-        text-align: center;
-        user-select: none;
-        transition: all 0.3s ease;
-        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+    
+    .preview-watermark {
+      font-family: '楷体', 'KaiTi', serif;
+      font-weight: bold;
+      text-align: center;
+      user-select: none;
+      transition: all 0.3s ease;
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
         position: relative;
         z-index: 1;
       }
@@ -1564,20 +1564,20 @@ watch(() => form.enableWatermark, (newValue) => {
 
 // 文件上传区域
 .permanent-section {
-  margin-top: 24px;
+  margin-top: 16px;
   
   .section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     
     h4 {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin: 0;
-      font-size: 16px;
+      gap: 6px;
+    margin: 0;
+      font-size: 14px;
       color: var(--el-text-color-primary);
       
       .el-icon {
@@ -1589,15 +1589,15 @@ watch(() => form.enableWatermark, (newValue) => {
   .permanent-files {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     
     .permanent-file {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px;
+      padding: 12px;
       background: var(--el-fill-color-extra-light);
-      border-radius: 10px;
+      border-radius: 8px;
       border: 1px solid var(--el-border-color-extra-light);
       transition: all 0.3s ease;
       
@@ -1609,11 +1609,11 @@ watch(() => form.enableWatermark, (newValue) => {
       .file-info {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
         flex: 1;
         
         .file-icon {
-          font-size: 18px;
+          font-size: 16px;
         }
         
         .file-details {
@@ -1623,20 +1623,21 @@ watch(() => form.enableWatermark, (newValue) => {
           .file-name {
             font-weight: 500;
             color: var(--el-text-color-primary);
-            margin-bottom: 2px;
+            margin-bottom: 1px;
+      font-size: 13px;
           }
           
           .file-meta {
-            font-size: 12px;
-            color: var(--el-text-color-regular);
-          }
-        }
-      }
-      
+            font-size: 11px;
+      color: var(--el-text-color-regular);
+    }
+  }
+}
+
       .file-actions {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
       }
     }
   }
@@ -1645,37 +1646,37 @@ watch(() => form.enableWatermark, (newValue) => {
 // 文件列表网格
 .files-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
   
   .file-card {
     display: flex;
     align-items: center;
-    padding: 16px;
+    padding: 12px;
     background: var(--el-fill-color-extra-light);
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--el-border-color-extra-light);
     transition: all 0.3s ease;
     
     &:hover {
       background: var(--el-fill-color-light);
       border-color: var(--el-color-primary);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
     
     .file-index {
-      width: 32px;
-      height: 32px;
+      width: 28px;
+      height: 28px;
       background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
       color: white;
-      border-radius: 8px;
+  border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 600;
-      font-size: 14px;
-      margin-right: 12px;
+      font-size: 12px;
+      margin-right: 10px;
     }
     
     .file-content {
@@ -1685,14 +1686,15 @@ watch(() => form.enableWatermark, (newValue) => {
       .file-name {
         font-weight: 500;
         color: var(--el-text-color-primary);
-        margin-bottom: 2px;
+        margin-bottom: 1px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-size: 13px;
       }
       
       .file-size {
-        font-size: 12px;
+        font-size: 11px;
         color: var(--el-text-color-regular);
       }
     }
@@ -1709,17 +1711,17 @@ watch(() => form.enableWatermark, (newValue) => {
 .convert-section {
   .convert-button {
     width: 100%;
-    height: 56px;
-    font-size: 16px;
+    height: 44px;
+    font-size: 14px;
     font-weight: 600;
-    border-radius: 12px;
+    border-radius: 8px;
     background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
     border: none;
     
     &:hover {
       background: linear-gradient(135deg, var(--el-color-primary-dark-2) 0%, var(--el-color-primary) 100%);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
   }
 }
@@ -1728,31 +1730,31 @@ watch(() => form.enableWatermark, (newValue) => {
 .result-panel {
   .result-card {
     background: white;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
     overflow: hidden;
     border: 1px solid rgba(0, 0, 0, 0.06);
     height: fit-content;
-    min-height: 500px;
+    min-height: 380px;
     
     .card-header {
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 24px;
+      gap: 12px;
+  padding: 16px;
       border-bottom: 1px solid rgba(0, 0, 0, 0.06);
       
       .header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         
         .el-icon {
-          font-size: 24px;
+          font-size: 18px;
           color: white;
         }
       }
@@ -1761,28 +1763,28 @@ watch(() => form.enableWatermark, (newValue) => {
         flex: 1;
         
         h3 {
-          margin: 0 0 4px 0;
-          font-size: 18px;
+          margin: 0 0 2px 0;
+          font-size: 16px;
           font-weight: 600;
           color: var(--el-text-color-primary);
         }
         
         p {
           margin: 0;
-          font-size: 14px;
+          font-size: 12px;
           color: var(--el-text-color-regular);
         }
       }
     }
     
     .result-content {
-      min-height: 400px;
+      min-height: 300px;
       display: flex;
       align-items: center;
       justify-content: center;
       flex-direction: column;
       text-align: center;
-      padding: 20px;
+      padding: 16px;
     }
   }
 }
@@ -1790,39 +1792,39 @@ watch(() => form.enableWatermark, (newValue) => {
 // 转换状态样式
 .converting-status {
   text-align: center;
-  padding: 20px;
+  padding: 16px;
   width: 100%;
   
   .progress-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     
     .progress-icon {
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       
       .el-icon {
-        font-size: 48px;
+        font-size: 36px;
         color: var(--el-color-primary);
         
         &.rotating {
           animation: rotate 2s linear infinite;
-        }
-      }
     }
-    
+  }
+}
+
     .progress-text {
       h4 {
-        margin: 0 0 8px 0;
+        margin: 0 0 4px 0;
         color: var(--el-text-color-primary);
-        font-size: 18px;
+        font-size: 16px;
       }
       
       p {
         margin: 0;
         color: var(--el-text-color-regular);
-        font-size: 14px;
+        font-size: 12px;
       }
     }
   }
@@ -1836,53 +1838,53 @@ watch(() => form.enableWatermark, (newValue) => {
 
 .result-success {
   text-align: center;
-  padding: 20px;
+  padding: 16px;
   width: 100%;
   
   .success-icon {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     
     .el-icon {
-      font-size: 64px;
+      font-size: 48px;
       color: var(--el-color-success);
     }
   }
   
   .success-content {
     h3 {
-      margin: 0 0 8px 0;
+      margin: 0 0 6px 0;
       color: var(--el-text-color-primary);
-      font-size: 20px;
+      font-size: 18px;
     }
     
     > p {
-      margin: 0 0 24px 0;
+      margin: 0 0 16px 0;
       color: var(--el-text-color-regular);
-      font-size: 14px;
+      font-size: 13px;
     }
     
     .result-info {
       background: var(--el-fill-color-extra-light);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 24px;
+      border-radius: 8px;
+    padding: 12px;
+      margin-bottom: 16px;
       text-align: left;
       
       .info-item {
         display: flex;
         justify-content: space-between;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         
         .label {
           font-weight: 500;
           color: var(--el-text-color-primary);
-          font-size: 13px;
+          font-size: 12px;
         }
         
         .value {
           color: var(--el-text-color-regular);
           font-family: monospace;
-          font-size: 12px;
+          font-size: 11px;
         }
       }
       
@@ -1891,14 +1893,14 @@ watch(() => form.enableWatermark, (newValue) => {
           display: block;
           font-weight: 500;
           color: var(--el-text-color-primary);
-          margin-bottom: 8px;
-          font-size: 13px;
+          margin-bottom: 6px;
+          font-size: 12px;
         }
         
         .file-tags {
           display: flex;
           flex-wrap: wrap;
-          gap: 6px;
+          gap: 4px;
         }
       }
     }
@@ -1906,97 +1908,97 @@ watch(() => form.enableWatermark, (newValue) => {
     .action-buttons {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
       
       .download-btn {
-        height: 48px;
-        padding: 0 24px;
-        font-size: 16px;
+        height: 40px;
+        padding: 0 16px;
+        font-size: 14px;
         font-weight: 600;
-        border-radius: 10px;
+        border-radius: 8px;
       }
     }
+    }
   }
-}
-
+  
 .result-error {
   text-align: center;
-  padding: 20px;
+      padding: 16px;
   width: 100%;
   
   .error-icon {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     
     .el-icon {
-      font-size: 64px;
+      font-size: 48px;
       color: var(--el-color-danger);
     }
   }
   
   .error-content {
     h3 {
-      margin: 0 0 8px 0;
+      margin: 0 0 6px 0;
       color: var(--el-text-color-primary);
-      font-size: 20px;
+      font-size: 18px;
     }
     
     p {
-      margin: 0 0 24px 0;
+      margin: 0 0 16px 0;
       color: var(--el-text-color-regular);
-      font-size: 14px;
+      font-size: 13px;
     }
-  }
-}
-
+      }
+    }
+    
 .result-empty {
   text-align: center;
-  padding: 20px;
+  padding: 16px;
   width: 100%;
   
   .empty-icon {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     
     .el-icon {
-      font-size: 64px;
+      font-size: 48px;
       color: var(--el-text-color-placeholder);
     }
   }
   
   .empty-content {
     h3 {
-      margin: 0 0 8px 0;
+      margin: 0 0 6px 0;
       color: var(--el-text-color-primary);
-      font-size: 18px;
+      font-size: 16px;
     }
     
     > p {
-      margin: 0 0 24px 0;
+      margin: 0 0 16px 0;
       color: var(--el-text-color-regular);
-      font-size: 14px;
+      font-size: 13px;
     }
     
     .features-list {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 8px;
-      max-width: 280px;
+      gap: 6px;
+      max-width: 240px;
       margin: 0 auto;
       
       .feature-item {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
+        gap: 6px;
+        padding: 6px 10px;
         background: var(--el-fill-color-extra-light);
-        border-radius: 8px;
-        font-size: 13px;
+        border-radius: 6px;
+        font-size: 12px;
         color: var(--el-text-color-regular);
         text-align: left;
         
         .el-icon {
           color: var(--el-color-success);
-          font-size: 14px;
-        }
+        font-size: 12px;
+      }
       }
     }
   }
@@ -2021,11 +2023,11 @@ watch(() => form.enableWatermark, (newValue) => {
   .hero-stats {
     gap: 20px;
   }
-}
-
+    }
+    
 @media (max-width: 768px) {
   .page-hero {
-    flex-direction: column;
+      flex-direction: column;
     text-align: center;
     gap: 20px;
     padding: 30px 16px;
@@ -2046,7 +2048,7 @@ watch(() => form.enableWatermark, (newValue) => {
   
   .form-row {
     grid-template-columns: 1fr;
-  }
+      }
   
   .style-grid {
     grid-template-columns: 1fr;

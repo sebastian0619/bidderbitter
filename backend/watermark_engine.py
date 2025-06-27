@@ -174,7 +174,7 @@ class WatermarkEngine:
                 watermark_text = f"{decorated_text} ◇"
                 font_size_multiplier = 0.8
             else:
-                watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 watermark_text = f"『 {decorated_text} 』"
                 font_size_multiplier = 1.5
             
@@ -192,21 +192,21 @@ class WatermarkEngine:
     def _add_center_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
         """废弃 - 使用新的apply_watermark方法"""
         return True
-
-    @staticmethod  
+    
+    @staticmethod
     def _add_repeat_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
         """废弃 - 使用新的apply_watermark方法"""
-        return True
-
+            return True
+    
     @staticmethod
     def _add_background_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int) -> bool:
         """废弃 - 使用新的apply_watermark方法"""
-        return True
-
+            return True
+    
     @staticmethod
     def _add_corner_watermark(doc: Document, text: str, font_size: int, rgb_color: tuple, rotation: int, position: str) -> bool:
         """废弃 - 使用新的apply_watermark方法"""
-        return True
+            return True
 
 # 便捷函数
 def apply_watermark_to_document(doc: Document, watermark_config: Dict[str, Any]) -> bool:

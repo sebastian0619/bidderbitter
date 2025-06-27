@@ -7,15 +7,17 @@
 import sys
 import os
 from datetime import datetime
+import asyncio
 
 # 添加当前目录到sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from database import SessionLocal
+from database import SessionLocal, get_db, engine
 from models import (
-    SectionType, DataSource, RecommendationRule,
-    Brand, BusinessField
+    Base, SectionType, DataSource, RecommendationRule,
+    Brand, BusinessField, SystemSettings
 )
+from sqlalchemy.orm import Session
 
 def init_section_types():
     """初始化章节类型"""
@@ -377,19 +379,228 @@ def init_advanced_business_fields():
     finally:
         db.close()
 
-def main():
-    """主函数"""
-    print("开始初始化高级功能数据...")
-    print("=" * 50)
+def init_classification_prompts(db: Session):
+    """初始化文档分类提示词设置"""
     
-    init_section_types()
-    init_data_sources()
-    init_recommendation_rules()
-    init_advanced_brands()
-    init_advanced_business_fields()
+    # 视觉模型分类提示词
+    vision_classification_prompt = '''你是一个专业的法律文档分类专家。请分析这份文档图片，判断文档类型并提取关键信息。
+
+文档类型分类（请仔细判断）：
+1. performance_contract - 业绩合同：法律服务合同、委托协议、顾问协议等
+2. award_certificate - 荣誉奖项：Chambers、Legal 500、Best Lawyers等法律行业奖项证书、排名认证等
+3. qualification_certificate - 资质证照：
+   - 律师执业证书（个人执业资格）
+   - 律师事务所执业许可证（机构执业资格）
+   - 营业执照、组织机构代码证
+   - 各种行业认证、资质证明
+   - 会员证书、从业资格证书
+4. other - 其他杂项：不属于以上类别的其他文档
+
+重点识别标准：
+- **律师执业证**：标题含"律师执业证"、"执业证书"，个人姓名，执业证号，发证机关（司法部门）
+- **事务所执业许可证**：标题含"律师事务所执业许可证"、"执业许可"，事务所名称，许可证号，发证机关
+- **营业执照**：标题含"营业执照"，统一社会信用代码，注册资本，经营范围
+- **获奖证书**：含奖项名称、获奖方、颁奖机构（如Chambers、Legal 500等）、年份
+- **服务合同**：含甲方乙方、服务内容、服务费用、合同期限等
+
+请按照以下JSON格式返回结果：
+{
+    "category": "文档类型代码",
+    "category_name": "文档类型中文名称",
+    "business_field": "业务领域（如果适用）",
+    "year": 年份,
+    "keywords": ["关键词1", "关键词2", "关键词3"],
+    "confidence": 置信度(0-1),
+    "description": "文档描述和分类依据",
+    "specific_type": "具体类型（如：律师执业证、事务所许可证、Chambers排名等）"
+}
+
+分析要点：
+1. **优先识别标题和文档头部**：这是判断文档类型的关键
+2. **查找关键标识**：执业证号、许可证号、奖项年份、合同编号等
+3. **识别发证/颁奖机构**：司法部门、评级机构、客户单位等
+4. **观察格式特征**：证书格式、合同格式、官方印章等
+5. **提取关键实体**：人名、机构名、金额、日期等
+6. **置信度评估**：根据关键信息的清晰度和完整性评分
+
+特别注意：律师事务所的执业许可证应归类为 qualification_certificate（资质证照），而非其他类别！'''
+
+    # 文本综合分类提示词
+    text_classification_prompt = '''你是一个专业的法律文档分类专家。请基于提供的文档内容进行分类分析。
+
+文档类型分类（请仔细判断）：
+1. performance_contract - 业绩合同：法律服务合同、委托协议、顾问协议、服务协议等
+2. award_certificate - 荣誉奖项：Chambers、Legal 500、Best Lawyers、IFLR、Who's Who Legal等法律行业奖项证书、排名认证等
+3. qualification_certificate - 资质证照：
+   - 律师执业证书（个人执业资格证明）
+   - 律师事务所执业许可证（机构执业资格证明）
+   - 营业执照、组织机构代码证、统一社会信用代码证
+   - 各种行业认证证书、资质证明文件
+   - 专业会员证书、从业资格证书
+4. other - 其他杂项：不属于以上类别的其他文档
+
+关键词识别标准（优先级排序）：
+**资质证照类**（最高优先级）：
+- "律师执业证"、"执业证书"、"执业许可证"、"律师事务所执业许可证"
+- "营业执照"、"统一社会信用代码"、"组织机构代码"
+- "资质证明"、"认证证书"、"从业资格"、"会员证书"
+- "司法局"、"司法厅"、"司法部"、"市场监督管理局"（发证机关）
+- "证号"、"许可证号"、"执业证号"、"信用代码"
+
+**荣誉奖项类**：
+- "Chambers"、"Legal 500"、"Best Lawyers"、"IFLR"、"Who's Who Legal"
+- "排名"、"评级"、"奖项"、"荣誉"、"认证"、"推荐律师"
+- "Ranked"、"Recommended"、"Leading"、"Notable"、"Rising Star"
+
+**业绩合同类**：
+- "合同"、"协议"、"委托书"、"服务协议"、"顾问协议"
+- "甲方"、"乙方"、"委托方"、"受托方"
+- "服务费"、"律师费"、"顾问费"、"合同金额"
+- "服务期限"、"合同期限"、"委托期间"
+
+请按照以下JSON格式返回结果：
+{
+    "category": "文档类型代码",
+    "category_name": "文档类型中文名称", 
+    "business_field": "业务领域（如果适用）",
+    "year": 年份,
+    "keywords": ["关键词1", "关键词2", "关键词3"],
+    "confidence": 置信度(0-1),
+    "description": "分类依据和文档描述",
+    "specific_type": "具体类型（如：律师执业证、事务所许可证、Chambers排名等）",
+    "key_entities": {
+        "holder_name": "持证人/获奖方名称",
+        "issuer": "颁发/发证机构",
+        "certificate_number": "证书/许可证号（如果是资质证照）",
+        "award_name": "奖项名称（如果是获奖）",
+        "client_name": "客户名称（如果是合同）",
+        "amount": "合同金额（如果是合同）",
+        "date_issued": "颁发/签署日期"
+    }
+}
+
+分析优先级：
+1. **首先查找资质证照关键词**：如发现"执业证"、"许可证"、"营业执照"等，优先分类为 qualification_certificate
+2. **其次查找奖项关键词**：如发现"Chambers"、"Legal 500"、"排名"等，分类为 award_certificate  
+3. **最后查找合同关键词**：如发现"合同"、"协议"、"甲方乙方"等，分类为 performance_contract
+4. **提取关键实体信息**：机构名称、个人姓名、证书号码、日期等
+5. **评估置信度**：根据关键信息的数量和清晰度打分
+
+特别强调：
+- 律师事务所执业许可证必须归类为 qualification_certificate（资质证照）
+- 个人律师执业证也必须归类为 qualification_certificate（资质证照）
+- 营业执照、组织机构代码证等均为 qualification_certificate（资质证照）
+- 只有真正的法律行业排名和奖项才归类为 award_certificate'''
+
+    # 添加分类提示词设置
+    classification_settings = [
+        {
+            "setting_key": "classification_vision_prompt",
+            "setting_value": vision_classification_prompt,
+            "setting_type": "longtext",
+            "category": "ai_classification",
+            "description": "视觉模型文档分类提示词",
+            "is_editable": True,
+            "requires_restart": False
+        },
+        {
+            "setting_key": "classification_text_prompt", 
+            "setting_value": text_classification_prompt,
+            "setting_type": "longtext",
+            "category": "ai_classification",
+            "description": "文本综合分类提示词",
+            "is_editable": True,
+            "requires_restart": False
+        },
+        # EasyOCR配置
+        {
+            "setting_key": "easyocr_enable",
+            "setting_value": "false",
+            "setting_type": "boolean",
+            "category": "ocr",
+            "description": "是否启用EasyOCR（需要下载模型）",
+            "is_editable": True,
+            "requires_restart": True
+        },
+        {
+            "setting_key": "easyocr_model_path",
+            "setting_value": "/app/easyocr_models",
+            "setting_type": "string", 
+            "category": "ocr",
+            "description": "EasyOCR模型存储路径",
+            "is_editable": True,
+            "requires_restart": True
+        },
+        {
+            "setting_key": "easyocr_download_proxy",
+            "setting_value": "",
+            "setting_type": "string",
+            "category": "ocr",
+            "description": "EasyOCR模型下载代理地址 (http://host:port)",
+            "is_editable": True,
+            "requires_restart": False
+        },
+        {
+            "setting_key": "easyocr_languages",
+            "setting_value": '["ch_sim", "en"]',
+            "setting_type": "json",
+            "category": "ocr",
+            "description": "EasyOCR支持的语言列表",
+            "is_editable": True,
+            "requires_restart": True
+        },
+        {
+            "setting_key": "easyocr_use_gpu",
+            "setting_value": "false",
+            "setting_type": "boolean",
+            "category": "ocr", 
+            "description": "EasyOCR是否使用GPU加速",
+            "is_editable": True,
+            "requires_restart": True
+        }
+    ]
     
-    print("=" * 50)
-    print("高级功能数据初始化完成！")
+    # 检查并添加设置
+    for setting_data in classification_settings:
+        existing = db.query(SystemSettings).filter(
+            SystemSettings.setting_key == setting_data["setting_key"]
+        ).first()
+        
+        if not existing:
+            setting = SystemSettings(**setting_data)
+            db.add(setting)
+            print(f"✅ 添加设置: {setting_data['setting_key']}")
+        else:
+            print(f"⚠️  设置已存在: {setting_data['setting_key']}")
+    
+    db.commit()
+
+def init_advanced_data():
+    """初始化高级功能数据"""
+    # 创建所有表
+    Base.metadata.create_all(bind=engine)
+    print("✅ 数据库表创建完成")
+    
+    db = next(get_db())
+    try:
+        # 初始化分类提示词
+        print("\n🔧 初始化文档分类提示词设置...")
+        init_classification_prompts(db)
+        
+        init_section_types()
+        init_data_sources()
+        init_recommendation_rules()
+        init_advanced_brands()
+        init_advanced_business_fields()
+        
+        print("\n✅ 高级功能数据初始化完成！")
+        
+    except Exception as e:
+        print(f"❌ 初始化失败: {str(e)}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 if __name__ == "__main__":
-    main() 
+    init_advanced_data() 

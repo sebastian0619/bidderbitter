@@ -37,7 +37,7 @@ services:
       - AI_PROVIDER=custom
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-3.5-turbo}
       - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4-vision-preview}
       
       # Azure OpenAI配置
@@ -52,6 +52,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - CUSTOM_AI_API_KEY=sk-olXSWRMsoGdwlUBy4VNtwrXjDNEYfOy706FTmYF87apiSi8q
       - CUSTOM_AI_BASE_URL=http://192.168.11.4:3010/v1
+      - CUSTOM_AI_MODEL=${CUSTOM_AI_MODEL:-gpt-3.5-turbo}
+      - CUSTOM_AI_VISION_MODEL=${CUSTOM_AI_VISION_MODEL:-gpt-4-vision-preview}
       
       # 截图服务配置
       - SELENIUM_HUB_URL=${SELENIUM_HUB_URL:-http://chrome:4444/wd/hub}

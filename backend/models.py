@@ -114,6 +114,66 @@ class PerformanceFile(Base):
     # 关系
     performance = relationship("Performance", back_populates="files")
 
+class LawyerCertificate(Base):
+    """律师证信息表"""
+    __tablename__ = "lawyer_certificates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 基本信息
+    lawyer_name = Column(String(100), nullable=False)  # 律师姓名
+    certificate_number = Column(String(100), nullable=False, unique=True)  # 执业证号
+    law_firm = Column(String(300), nullable=False)  # 执业机构
+    issuing_authority = Column(String(200))  # 发证机关（司法局/司法厅）
+    
+    # 个人信息
+    age = Column(Integer)  # 年龄
+    id_number = Column(String(20))  # 身份证号（脱敏显示）
+    issue_date = Column(DateTime)  # 颁发日期
+    
+    # 职位和标签
+    position = Column(String(50))  # 职位：合伙人/律师  
+    position_tags = Column(JSON, default=list)  # 职位标签列表
+    business_field_tags = Column(JSON, default=list)  # 业务领域标签列表
+    custom_tags = Column(JSON, default=list)  # 自定义标签列表
+    
+    # 原始文档信息
+    source_document = Column(String(500))  # 原始文档路径
+    
+    # AI分析结果
+    ai_analysis = Column(JSON)  # AI分析的结构化数据
+    confidence_score = Column(Float)  # AI识别置信度
+    extracted_text = Column(Text)  # 提取的文本内容
+    
+    # 状态信息
+    is_verified = Column(Boolean, default=False)  # 是否已验证
+    is_manual_input = Column(Boolean, default=False)  # 是否手动录入
+    verification_notes = Column(Text)  # 验证备注
+    
+    # 时间戳
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    # 关联的文件
+    files = relationship("LawyerCertificateFile", back_populates="certificate")
+
+class LawyerCertificateFile(Base):
+    """律师证相关文件表"""
+    __tablename__ = "lawyer_certificate_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    certificate_id = Column(Integer, ForeignKey("lawyer_certificates.id"))
+    file_path = Column(String(500), nullable=False)  # 文件路径
+    file_type = Column(String(50))  # 文件类型 (original, scanned, cropped)
+    file_name = Column(String(255))  # 原始文件名
+    file_size = Column(Integer)  # 文件大小
+    page_number = Column(Integer)  # 页码（如果是多页文档）
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    # 关系
+    certificate = relationship("LawyerCertificate", back_populates="files")
+
 class BusinessField(Base):
     """业务领域配置表"""
     __tablename__ = "business_fields"
@@ -171,10 +231,12 @@ class SystemSettings(Base):
     id = Column(Integer, primary_key=True, index=True)
     setting_key = Column(String(100), unique=True, nullable=False)  # 设置键名
     setting_value = Column(Text)  # 设置值
-    setting_type = Column(String(50), default="string")  # 设置类型: string, json, boolean, number
+    setting_type = Column(String(50), default="string")  # 设置类型: string, json, boolean, number, longtext
     category = Column(String(50), nullable=False)  # 设置分类: ai, upload, screenshot, etc.
     description = Column(Text)  # 设置描述
     is_sensitive = Column(Boolean, default=False)  # 是否敏感信息（如API密钥）
+    is_editable = Column(Boolean, default=True)  # 是否可编辑
+    requires_restart = Column(Boolean, default=False)  # 是否需要重启应用
     
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

@@ -15,6 +15,46 @@ from io import BytesIO
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def clean_heading_style(heading):
+    """清除标题的项目符号和列表样式，防止出现小黑点"""
+    try:
+        from docx.oxml.shared import qn
+        
+        # 清除段落的编号和项目符号
+        pPr = heading._element.get_or_add_pPr()
+        
+        # 移除编号属性
+        numPr = pPr.find(qn('w:numPr'))
+        if numPr is not None:
+            pPr.remove(numPr)
+        
+        # 设置段落格式，明确禁用列表样式和分页控制
+        if hasattr(heading, 'paragraph_format'):
+            heading.paragraph_format.left_indent = None
+            heading.paragraph_format.first_line_indent = None
+            
+            # 禁用分页控制选项，对应Word中的"分页"设置
+            heading.paragraph_format.widow_control = False      # 孤行控制
+            heading.paragraph_format.keep_with_next = False     # 与下段同页
+            heading.paragraph_format.keep_together = False      # 段中不分页
+            heading.paragraph_format.page_break_before = False  # 段前分页
+            
+    except Exception as style_error:
+        logger.warning(f"清除标题样式时出错: {style_error}")
+
+def create_clean_heading(doc, text, level=1, center=False):
+    """创建一个没有小黑点的干净标题"""
+    heading = doc.add_heading(text, level)
+    
+    # 清除项目符号样式
+    clean_heading_style(heading)
+    
+    # 设置对齐方式
+    if center or level == 0:
+        heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    return heading
+
 class DocumentGenerator:
     """Word文档生成器"""
     
@@ -37,8 +77,7 @@ class DocumentGenerator:
                 section.right_margin = Cm(3.18)
             
             # 添加标题
-            title = doc.add_heading('获奖情况', 0)
-            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title = create_clean_heading(doc, '获奖情况', 0, center=True)
             
             # 添加筛选条件说明
             self._add_filter_summary(doc, selected_filters)
@@ -48,12 +87,12 @@ class DocumentGenerator:
             
             for year in sorted(grouped_awards.keys(), reverse=True):
                 # 年份标题
-                year_heading = doc.add_heading(f'{year}年获奖情况', 1)
+                year_heading = create_clean_heading(doc, f'{year}年获奖情况', 1)
                 year_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 
                 for brand in grouped_awards[year]:
                     # 厂牌子标题
-                    brand_heading = doc.add_heading(f'{brand}', 2)
+                    brand_heading = create_clean_heading(doc, f'{brand}', 2)
                     
                     for award in grouped_awards[year][brand]:
                         # 添加获奖信息
@@ -92,8 +131,7 @@ class DocumentGenerator:
                 section.right_margin = Cm(3.18)
             
             # 添加标题
-            title = doc.add_heading('业绩情况', 0)
-            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title = create_clean_heading(doc, '业绩情况', 0, center=True)
             
             # 添加筛选条件说明
             self._add_filter_summary(doc, selected_filters)
@@ -106,7 +144,7 @@ class DocumentGenerator:
             
             for year in sorted(grouped_performances.keys(), reverse=True):
                 # 年份标题
-                year_heading = doc.add_heading(f'{year}年业绩情况', 1)
+                year_heading = create_clean_heading(doc, f'{year}年业绩情况', 1)
                 
                 for performance in grouped_performances[year]:
                     # 添加业绩详情
@@ -142,22 +180,21 @@ class DocumentGenerator:
                 section.right_margin = Cm(3.18)
             
             # 添加总标题
-            title = doc.add_heading('投标资料汇总', 0)
-            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            title = create_clean_heading(doc, '投标资料汇总', 0, center=True)
             
             # 添加筛选条件说明
             self._add_filter_summary(doc, selected_filters)
             
             # 第一部分：获奖情况
             if awards:
-                doc.add_heading('第一部分 获奖情况', 1)
+                create_clean_heading(doc, '第一部分 获奖情况', 1)
                 grouped_awards = self._group_awards(awards)
                 
                 for year in sorted(grouped_awards.keys(), reverse=True):
-                    year_heading = doc.add_heading(f'{year}年获奖情况', 2)
+                    year_heading = create_clean_heading(doc, f'{year}年获奖情况', 2)
                     
                     for brand in grouped_awards[year]:
-                        brand_heading = doc.add_heading(f'{brand}', 3)
+                        brand_heading = create_clean_heading(doc, f'{brand}', 3)
                         
                         for award in grouped_awards[year][brand]:
                             self._add_award_content(doc, award)
@@ -165,7 +202,7 @@ class DocumentGenerator:
             
             # 第二部分：业绩情况
             if performances:
-                doc.add_heading('第二部分 业绩情况', 1)
+                create_clean_heading(doc, '第二部分 业绩情况', 1)
                 
                 # 业绩汇总表
                 self._add_performance_summary_table(doc, performances)
@@ -174,7 +211,7 @@ class DocumentGenerator:
                 grouped_performances = self._group_performances_by_year(performances)
                 
                 for year in sorted(grouped_performances.keys(), reverse=True):
-                    year_heading = doc.add_heading(f'{year}年业绩情况', 2)
+                    year_heading = create_clean_heading(doc, f'{year}年业绩情况', 2)
                     
                     for performance in grouped_performances[year]:
                         self._add_performance_content(doc, performance)
@@ -199,7 +236,7 @@ class DocumentGenerator:
         if not filters:
             return
         
-        doc.add_heading('筛选条件', 2)
+        create_clean_heading(doc, '筛选条件', 2)
         
         filter_info = []
         if filters.get('brands'):
@@ -299,7 +336,7 @@ class DocumentGenerator:
         if not performances:
             return
         
-        doc.add_heading('业绩汇总表', 2)
+        create_clean_heading(doc, '业绩汇总表', 2)
         
         # 创建表格
         table = doc.add_table(rows=1, cols=7)
