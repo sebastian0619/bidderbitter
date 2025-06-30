@@ -635,7 +635,7 @@ const fetchCertificates = async () => {
     if (searchForm.is_verified !== null) params.is_verified = searchForm.is_verified
     if (searchForm.law_firm) params.law_firm = searchForm.law_firm
 
-    const response = await axios.get('/api/lawyer-certificates/list', { params })
+    const response = await axios.get('/lawyer-certificates/list', { params })
     
     if (response.data.success) {
       certificates.value = response.data.certificates
@@ -644,7 +644,7 @@ const fetchCertificates = async () => {
     }
   } catch (error) {
     console.error('获取律师证列表失败:', error)
-    ElMessage.error('获取律师证列表失败')
+    ElMessage.error('获取列表失败')
   } finally {
     loading.value = false
   }
@@ -652,18 +652,19 @@ const fetchCertificates = async () => {
 
 const fetchStats = async () => {
   try {
-    const response = await axios.get('/api/lawyer-certificates/stats')
+    const response = await axios.get('/lawyer-certificates/stats')
+    
     if (response.data.success) {
       stats.value = response.data.stats
     }
   } catch (error) {
-    console.error('获取统计信息失败:', error)
+    console.error('获取统计数据失败:', error)
   }
 }
 
 const fetchTagSuggestions = async () => {
   try {
-    const response = await axios.get('/api/lawyer-certificates/tags/suggestions')
+    const response = await axios.get('/lawyer-certificates/tags/suggestions')
     if (response.data.success) {
       tagSuggestions.value = response.data.tag_suggestions
     }
@@ -674,7 +675,7 @@ const fetchTagSuggestions = async () => {
 
 const fetchCertificateDetail = async (certId) => {
   try {
-    const response = await axios.get(`/api/lawyer-certificates/${certId}`)
+    const response = await axios.get(`/lawyer-certificates/${certId}`)
     if (response.data.success) {
       currentCertificate.value = response.data.certificate
       showDetailDialog.value = true
@@ -793,7 +794,7 @@ const submitCreate = async () => {
       }
     })
 
-    const response = await axios.post('/api/lawyer-certificates/create', formData, {
+    const response = await axios.post('/lawyer-certificates/create', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }

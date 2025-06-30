@@ -1179,6 +1179,14 @@ const saveAllSettings = async () => {
       ...ocrSettings.value  // 添加OCR设置
     }
     
+    // 处理OCR语言数组的序列化（与saveOCRSettings保持一致）
+    if (Array.isArray(allSettings.docling_ocr_languages)) {
+      allSettings.docling_ocr_languages = JSON.stringify(allSettings.docling_ocr_languages)
+    }
+    if (Array.isArray(allSettings.easyocr_languages)) {
+      allSettings.easyocr_languages = JSON.stringify(allSettings.easyocr_languages)
+    }
+    
     // 添加视觉模型配置
     allSettings.ai_vision_model = aiSettings.value.ai_vision_model
     
@@ -1201,6 +1209,8 @@ const saveAllSettings = async () => {
       ElMessage.success(`所有设置保存成功！更新了 ${response.updated_settings?.length || 0} 个设置`)
       // 重新加载设置以确保同步
       await loadSettings()
+      // 重新加载OCR状态
+      await refreshOCRStatus()
     } else {
       console.error('保存响应失败:', response)
       ElMessage.error(response?.message || '保存设置失败')
@@ -1475,8 +1485,6 @@ const formatLanguages = (languages) => {
   }
   return []
 }
-
-
 
 // 格式化日期
 const formatDate = (dateStr) => {

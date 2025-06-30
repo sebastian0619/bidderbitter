@@ -51,6 +51,9 @@ class AIService:
         self.docling_use_gpu = False
         self.docling_ocr_languages = ["ch_sim", "en"]
         
+        # 业务领域配置
+        self.business_fields = self._load_business_fields()
+        
         # 初始化Docling转换器
         self.docling_converter = None
         self._init_docling_converter()
@@ -82,6 +85,40 @@ class AIService:
             except:
                 pass
     
+    def _load_business_fields(self) -> list:
+        """从数据库加载业务领域列表"""
+        try:
+            from database import get_db
+            from models import BusinessField
+            
+            db = next(get_db())
+            fields = db.query(BusinessField).filter(BusinessField.is_active == True).all()
+            business_fields = [field.name for field in fields]
+            
+            # 如果数据库中没有业务领域，使用默认值
+            if not business_fields:
+                business_fields = [
+                    "公司并购", "资本市场", "银行金融", "知识产权", "争议解决", 
+                    "合规监管", "房地产", "劳动法", "税务", "能源矿产"
+                ]
+                logger.info("使用默认业务领域列表")
+            else:
+                logger.info(f"从数据库加载了 {len(business_fields)} 个业务领域")
+            
+            return business_fields
+            
+        except Exception as e:
+            logger.warning(f"加载业务领域失败，使用默认值: {str(e)}")
+            return [
+                "公司并购", "资本市场", "银行金融", "知识产权", "争议解决", 
+                "合规监管", "房地产", "劳动法", "税务", "能源矿产"
+            ]
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
     def reload_config(self):
         """重新加载配置"""
         try:
@@ -94,6 +131,9 @@ class AIService:
             self.docling_enable_ocr = self.enable_docling_ocr
             self.docling_use_gpu = self._get_setting_value("docling_use_gpu", "false").lower() == "true"
             
+            # 重新加载业务领域
+            self.business_fields = self._load_business_fields()
+            
             # 重新初始化Docling转换器
             self._init_docling_converter()
                 
@@ -103,7 +143,7 @@ class AIService:
             logger.error(f"重新加载AI配置失败: {str(e)}")
     
     def _init_docling_converter(self):
-        """初始化Docling转换器"""
+        """初始化Docling转换器，支持AI模型预下载和离线模式"""
         if not DOCLING_AVAILABLE:
             logger.warning("Docling不可用，跳过初始化")
             return
@@ -130,20 +170,45 @@ class AIService:
                 download_enabled=True
             )
             
-            # 配置PDF管道选项 - 根据Docling文档规范
-            self.docling_pipeline_options = PdfPipelineOptions(
-                do_ocr=self.docling_enable_ocr,
-                do_table_structure=True,
-                do_picture_classification=False,
-                do_picture_description=False,
-                ocr_options=ocr_options,
-                images_scale=1.0,
-                generate_page_images=False,
-                generate_picture_images=False,
-                force_backend_text=False,  # 添加缺失的属性
-                generate_parsed_pages=True,  # 修复：应该为True
-                generate_table_images=False  # 添加缺失的属性
-            )
+            # 检查是否需要下载AI模型
+            ai_models_ready = self._check_ai_models_ready()
+            
+            if ai_models_ready:
+                logger.info("AI模型已就绪，使用完整Docling功能")
+                # 使用完整功能的配置
+                self.docling_pipeline_options = PdfPipelineOptions(
+                    do_ocr=self.docling_enable_ocr,
+                    do_table_structure=True,  # 启用表格识别
+                    do_picture_classification=False,  # 可选：图片分类
+                    do_picture_description=False,  # 可选：图片描述
+                    ocr_options=ocr_options,
+                    images_scale=1.0,
+                    generate_page_images=False,
+                    generate_picture_images=False,
+                    force_backend_text=False,
+                    generate_parsed_pages=True,
+                    generate_table_images=False
+                )
+            else:
+                logger.warning("AI模型未就绪，使用离线模式（仅OCR功能）")
+                # 设置离线环境变量
+                os.environ['HF_HUB_OFFLINE'] = '1'
+                os.environ['TRANSFORMERS_OFFLINE'] = '1'
+                
+                # 使用最简化的配置，只启用OCR
+                self.docling_pipeline_options = PdfPipelineOptions(
+                    do_ocr=self.docling_enable_ocr,
+                    do_table_structure=False,  # 禁用表格识别（需要AI模型）
+                    do_picture_classification=False,
+                    do_picture_description=False,
+                    ocr_options=ocr_options,
+                    images_scale=1.0,
+                    generate_page_images=False,
+                    generate_picture_images=False,
+                    force_backend_text=True,  # 强制使用后端文本提取
+                    generate_parsed_pages=True,
+                    generate_table_images=False
+                )
             
             # 配置图片处理选项（使用基础PipelineOptions加OCR）
             self.docling_image_options = PipelineOptions()
@@ -160,14 +225,124 @@ class AIService:
                 }
             )
             
+            # 如果AI模型未就绪，启动后台下载任务
+            if not ai_models_ready:
+                self._start_ai_models_download()
+            
             logger.info(f"Docling转换器初始化成功")
             logger.info(f"EasyOCR模型目录: {easyocr_model_path}")
             logger.info(f"OCR设置: 启用={self.docling_enable_ocr}, GPU={self.docling_use_gpu}")
+            logger.info(f"AI模型状态: {'就绪' if ai_models_ready else '离线模式'}")
             
         except Exception as e:
             logger.error(f"Docling转换器初始化失败: {str(e)}")
             self.docling_converter = None
     
+    def _check_ai_models_ready(self) -> bool:
+        """检查AI模型是否已下载并可用"""
+        try:
+            # 检查HuggingFace缓存目录
+            cache_dirs = [
+                os.path.expanduser('~/.cache/huggingface'),
+                '/root/.cache/huggingface',
+                os.path.join(os.path.dirname(__file__), '..', '.cache', 'huggingface')
+            ]
+            
+            # 需要检查的模型
+            required_models = [
+                'HuggingFaceTB/SmolVLM-256M-Instruct',  # 图片描述模型
+                'microsoft/table-transformer-structure-recognition',  # 表格识别模型（可能的名称）
+            ]
+            
+            models_found = 0
+            for cache_dir in cache_dirs:
+                if os.path.exists(cache_dir):
+                    try:
+                        # 检查是否有模型文件
+                        for root, dirs, files in os.walk(cache_dir):
+                            if any(model_name.split('/')[-1] in root for model_name in required_models):
+                                if any(f.endswith(('.bin', '.safetensors', '.json')) for f in files):
+                                    models_found += 1
+                                    break
+                    except Exception as e:
+                        logger.debug(f"检查缓存目录失败 {cache_dir}: {e}")
+                        continue
+            
+            # 如果找到了一些模型文件，认为AI模型基本可用
+            models_ready = models_found > 0
+            logger.info(f"AI模型检查结果: 找到 {models_found} 个模型缓存，{'就绪' if models_ready else '需要下载'}")
+            
+            return models_ready
+            
+        except Exception as e:
+            logger.warning(f"检查AI模型状态失败: {e}")
+            return False
+    
+    def _start_ai_models_download(self):
+        """启动AI模型后台下载任务"""
+        try:
+            import threading
+            
+            def download_models():
+                try:
+                    logger.info("开始后台下载AI模型...")
+                    
+                    # 临时移除离线模式，允许下载
+                    os.environ.pop('HF_HUB_OFFLINE', None)
+                    os.environ.pop('TRANSFORMERS_OFFLINE', None)
+                    
+                    # 尝试创建一个简单的转换器来触发模型下载
+                    from docling.document_converter import DocumentConverter
+                    from docling.datamodel.base_models import InputFormat
+                    
+                    # 使用默认配置，这会触发模型下载
+                    temp_converter = DocumentConverter()
+                    logger.info("AI模型下载触发成功")
+                    
+                    # 下载完成后，重新初始化转换器
+                    self._init_docling_converter()
+                    logger.info("AI模型下载完成，Docling转换器已更新")
+                    
+                except Exception as e:
+                    logger.error(f"后台下载AI模型失败: {e}")
+                    # 重新设置离线模式
+                    os.environ['HF_HUB_OFFLINE'] = '1'
+                    os.environ['TRANSFORMERS_OFFLINE'] = '1'
+            
+            # 启动后台线程
+            download_thread = threading.Thread(target=download_models, daemon=True)
+            download_thread.start()
+            logger.info("AI模型后台下载任务已启动")
+            
+        except Exception as e:
+            logger.error(f"启动AI模型下载任务失败: {e}")
+    
+    def get_ai_models_status(self) -> Dict[str, Any]:
+        """获取AI模型状态"""
+        try:
+            models_ready = self._check_ai_models_ready()
+            offline_mode = os.environ.get('HF_HUB_OFFLINE') == '1'
+            
+            return {
+                "models_ready": models_ready,
+                "offline_mode": offline_mode,
+                "docling_available": self.docling_converter is not None,
+                "features": {
+                    "ocr": self.docling_enable_ocr,
+                    "table_structure": models_ready and not offline_mode,
+                    "picture_description": models_ready and not offline_mode,
+                    "picture_classification": models_ready and not offline_mode
+                }
+            }
+        except Exception as e:
+            logger.error(f"获取AI模型状态失败: {e}")
+            return {
+                "models_ready": False,
+                "offline_mode": True,
+                "docling_available": False,
+                "error": str(e)
+            }
+
     async def download_easyocr_models(self, progress_callback=None):
         """手动下载EasyOCR模型（通过Docling统一管理）"""
         try:

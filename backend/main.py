@@ -208,6 +208,22 @@ async def startup_event():
                 logger.info("律师证管理API路由注册成功")
             except ImportError as e:
                 logger.warning(f"律师证管理API路由注册失败: {str(e)}")
+            
+            # 注册业绩管理API路由
+            try:
+                import performance_api
+                app.include_router(performance_api.router, prefix="/api/performances", tags=["performances"])
+                logger.info("业绩管理API路由注册成功")
+            except ImportError as e:
+                logger.warning(f"业绩管理API路由注册失败: {str(e)}")
+            
+            # 注册奖项管理API路由
+            try:
+                import award_api
+                app.include_router(award_api.router, prefix="/api/awards", tags=["awards"])
+                logger.info("奖项管理API路由注册成功")
+            except ImportError as e:
+                logger.warning(f"奖项管理API路由注册失败: {str(e)}")
         else:
             logger.error("API路由注册失败，模块导入错误")
         
@@ -248,14 +264,16 @@ async def init_base_data():
             db.add_all(default_awards)
             logger.info(f"已初始化 {len(default_awards)} 个默认奖项")
 
-        # 检查是否已有业绩数据
-        if db.query(Performance).count() == 0:
-            default_performances = [
-                Performance(client_name="大型科技公司", project_name="Alpha项目-跨国并购案", project_type="并购重组", business_field="领域X", year=2023, contract_amount=1000000, description="一个复杂的跨国并购项目。"),
-                Performance(client_name="初创金融公司", project_name="Beta项目-支付系统合规审查", project_type="合规与监管", business_field="领域Y", year=2024, contract_amount=500000, description="确保其支付系统符合所有相关法规。"),
-            ]
-            db.add_all(default_performances)
-            logger.info(f"已初始化 {len(default_performances)} 个默认业绩")
+        # 检查是否已有业绩数据 - 移除默认数据创建
+        # if db.query(Performance).count() == 0:
+        #     default_performances = [
+        #         Performance(client_name="大型科技公司", project_name="Alpha项目-跨国并购案", project_type="并购重组", business_field="领域X", year=2023, contract_amount=1000000, description="一个复杂的跨国并购项目。"),
+        #         Performance(client_name="初创金融公司", project_name="Beta项目-支付系统合规审查", project_type="合规与监管", business_field="领域Y", year=2024, contract_amount=500000, description="确保其支付系统符合所有相关法规。"),
+        #     ]
+        #     db.add_all(default_performances)
+        #     logger.info(f"已初始化 {len(default_performances)} 个默认业绩")
+        # 业绩数据现在从空开始，用户手动添加
+        logger.info("业绩管理已准备就绪，数据从空开始")
             
         db.commit()
     except Exception as e:
@@ -1007,6 +1025,8 @@ async def convert_files_to_word(
     file_title_level: int = Form(default=2),  # 新增：文件标题大纲层级
     enable_watermark: bool = Form(default=False),
     file_watermark_settings: str = Form(default="[]"),  # 新增：每个文件的水印设置JSON
+    file_page_break_settings: str = Form(default="[]"),  # 新增：每个文件的分页符设置JSON
+    file_page_number_settings: str = Form(default="[]"),  # 新增：每个文件的页码设置JSON
     permanent_file_ids: str = Form(default="[]"),  # 新增：选择的常驻文件ID列表
     watermark_text: str = Form(default=""),
     watermark_font_size: int = Form(default=24),
@@ -1022,6 +1042,7 @@ async def convert_files_to_word(
     try:
         logger.info(f"收到转换请求 - 文档标题: {document_title}, 文件数量: {len(files)}")
         logger.info(f"标题配置 - 显示主标题: {show_main_title}(层级{main_title_level}), 显示文件标题: {show_file_titles}(层级{file_title_level})")
+        logger.info(f"分页设置 - 文件间分页符: {file_page_break_settings}, 页码: {file_page_number_settings}")
         if enable_watermark and watermark_text:
             logger.info(f"水印配置 - 文字: {watermark_text}, 字体大小: {watermark_font_size}, 角度: {watermark_angle}°, 透明度: {watermark_opacity}%, 颜色: {watermark_color}, 位置: {watermark_position}")
         
@@ -1156,18 +1177,61 @@ async def convert_files_to_word(
         if show_main_title:
             format_heading(doc, document_title, level=main_title_level, center=True)
         
+        # 解析每个文件的水印设置
+        try:
+            file_watermark_list = json.loads(file_watermark_settings)
+        except:
+            file_watermark_list = []
+        
+        # 解析每个文件的分页符设置
+        try:
+            file_page_break_list = json.loads(file_page_break_settings)
+        except:
+            file_page_break_list = []
+        
+        # 解析每个文件的页码设置
+        try:
+            file_page_number_list = json.loads(file_page_number_settings)
+        except:
+            file_page_number_list = []
+        
+        # 检查是否有任何文件需要页码
+        has_any_page_numbers = any(file_page_number_list) if file_page_number_list else False
+        
+        # 如果有文件需要页码，设置页码样式
+        if has_any_page_numbers:
+            # 添加页脚和页码
+            from docx.oxml.shared import qn
+            from docx.oxml import OxmlElement
+            
+            section = doc.sections[0]
+            footer = section.footer
+            footer_para = footer.paragraphs[0]
+            footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # 添加页码域
+            fldChar1 = OxmlElement('w:fldChar')
+            fldChar1.set(qn('w:fldCharType'), 'begin')
+            
+            instrText = OxmlElement('w:instrText')
+            instrText.text = 'PAGE'
+            
+            fldChar2 = OxmlElement('w:fldChar')
+            fldChar2.set(qn('w:fldCharType'), 'end')
+            
+            run = footer_para.runs[0] if footer_para.runs else footer_para.add_run()
+            run._element.append(fldChar1)
+            run._element.append(instrText)
+            run._element.append(fldChar2)
+            
+            logger.info("页码设置完成")
+        
         processed_files = []
         results = []
         total_files = len(file_paths)
         
         if total_files == 0:
             return {"success": False, "message": "没有可处理的文件"}
-        
-        # 解析每个文件的水印设置
-        try:
-            file_watermark_list = json.loads(file_watermark_settings)
-        except:
-            file_watermark_list = []
         
         # 逐个处理文件
         for i, file_path in enumerate(file_paths):
@@ -1182,6 +1246,16 @@ async def convert_files_to_word(
             else:
                 file_needs_watermark = enable_watermark  # 默认跟随全局设置
             
+            # 检查当前文件是否需要分页符
+            file_needs_page_break = True  # 默认需要分页符
+            if i < len(file_page_break_list):
+                file_needs_page_break = file_page_break_list[i]
+            
+            # 检查当前文件是否需要页码
+            file_needs_page_numbers = False  # 默认不需要页码
+            if i < len(file_page_number_list):
+                file_needs_page_numbers = file_page_number_list[i]
+            
             try:
                 if file_ext == '.pdf':
                     # 如果此文件需要水印，先给PDF添加水印
@@ -1194,15 +1268,21 @@ async def convert_files_to_word(
                     else:
                         logger.info(f"文件 {filename} 跳过水印")
                     
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True  # 如果不添加分页符，每个文件都当作最后一个文件处理
+                    
                     result = await docling_processor.process_pdf_with_docling(
-                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, is_last_file
+                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
                     )
                     processed_files.append(f"PDF: {filename}{' (含水印)' if file_needs_watermark and watermark_text else ''}")
                     results.append(result)
                 elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True  # 如果不添加分页符，每个文件都当作最后一个文件处理
+                    
                     # 图片文件的水印处理（目前暂不支持，仅记录状态）
                     result = await docling_processor.process_image(
-                        file_path, doc, filename, None, show_file_titles, file_title_level, is_last_file
+                        file_path, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
                     )
                     processed_files.append(f"图片: {filename}{' (图片暂不支持水印)' if file_needs_watermark else ''}")
                     results.append(result)
@@ -1897,6 +1977,28 @@ async def get_easyocr_status():
     except Exception as e:
         logger.error(f"获取EasyOCR状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/ai-models/status")
+async def get_ai_models_status():
+    """获取AI模型状态"""
+    try:
+        from ai_service import ai_service
+        status = ai_service.get_ai_models_status()
+        return {"success": True, **status}
+    except Exception as e:
+        logger.error(f"获取AI模型状态失败: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/ai-models/download")
+async def trigger_ai_models_download():
+    """触发AI模型下载"""
+    try:
+        from ai_service import ai_service
+        ai_service._start_ai_models_download()
+        return {"success": True, "message": "AI模型下载已启动"}
+    except Exception as e:
+        logger.error(f"启动AI模型下载失败: {e}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

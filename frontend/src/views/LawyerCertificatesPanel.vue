@@ -732,7 +732,7 @@ const fetchCertificates = async () => {
     if (searchForm.position) params.position = searchForm.position
     if (searchForm.is_verified !== null) params.is_verified = searchForm.is_verified
 
-    const response = await axios.get('/api/lawyer-certificates/list', { params })
+    const response = await axios.get('/lawyer-certificates/list', { params })
     
     if (response.data.success) {
       certificates.value = response.data.certificates
@@ -748,7 +748,7 @@ const fetchCertificates = async () => {
 
 const fetchTagSuggestions = async () => {
   try {
-    const response = await axios.get('/api/lawyer-certificates/tags/suggestions')
+    const response = await axios.get('/lawyer-certificates/tags/suggestions')
     if (response.data.success) {
       tagSuggestions.value = response.data.tag_suggestions
     }
@@ -777,7 +777,7 @@ const onPageChange = () => {
 
 const viewCertificate = async (cert) => {
   try {
-    const response = await axios.get(`/api/lawyer-certificates/${cert.id}`)
+    const response = await axios.get(`/lawyer-certificates/${cert.id}`)
     if (response.data.success) {
       currentCert.value = response.data.certificate
       showDetailDialog.value = true
@@ -815,7 +815,7 @@ const deleteCertificate = async (cert) => {
       }
     )
 
-    const response = await axios.delete(`/api/lawyer-certificates/${cert.id}`)
+    const response = await axios.delete(`/lawyer-certificates/${cert.id}`)
     if (response.data.success) {
       ElMessage.success('删除成功')
       refreshData()
@@ -879,7 +879,7 @@ const submitForm = async () => {
     let response
     if (editingCert.value) {
       // 编辑模式，不处理文件上传
-      response = await axios.put(`/api/lawyer-certificates/${editingCert.value.id}`, formData)
+      response = await axios.put(`/lawyer-certificates/${editingCert.value.id}`, formData)
     } else {
       // 创建模式，检查是否有文件上传
       if (createFileList.value.length > 0) {
@@ -902,10 +902,10 @@ const submitForm = async () => {
         fileFormData.append('enable_ai_analysis', createOptions.enable_ai_analysis)
         fileFormData.append('enable_vision_analysis', createOptions.enable_vision_analysis)
         
-        response = await axios.post('/api/lawyer-certificates/create-from-file', fileFormData)
+        response = await axios.post('/lawyer-certificates/create-from-file', fileFormData)
       } else {
         // 没有文件上传，使用普通create接口
-        response = await axios.post('/api/lawyer-certificates/create', formData)
+        response = await axios.post('/lawyer-certificates/create', formData)
       }
     }
 
@@ -1002,7 +1002,7 @@ const performUpload = async () => {
     formData.append('enable_vision_analysis', uploadOptions.enable_vision_analysis)
 
     const response = await axios.post(
-      `/api/lawyer-certificates/${uploadingCert.value.id}/upload-file`,
+      `/lawyer-certificates/${uploadingCert.value.id}/upload-file`,
       formData
     )
 
@@ -1054,7 +1054,7 @@ const performReanalyze = async () => {
     formData.append('update_fields', reanalyzeOptions.update_fields)
 
     const response = await axios.post(
-      `/api/lawyer-certificates/${reanalyzingCert.value.id}/reanalyze`,
+      `/lawyer-certificates/${reanalyzingCert.value.id}/reanalyze`,
       formData
     )
 
@@ -1156,7 +1156,7 @@ const performBatchUpload = async () => {
         formData.append('auto_verify', batchOptions.auto_verify)
         formData.append('skip_duplicates', batchOptions.skip_duplicates)
 
-        const response = await axios.post('/api/lawyer-certificates/create-from-file', formData)
+        const response = await axios.post('/lawyer-certificates/create-from-file', formData)
 
         if (response.data.success) {
           results.success++

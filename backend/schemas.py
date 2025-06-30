@@ -42,10 +42,14 @@ class AwardResponse(BaseResponse):
 class PerformanceBase(BaseModel):
     project_name: str
     client_name: str
-    project_amount: Optional[float] = None
-    completion_date: datetime
+    project_type: str
+    business_field: str
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    year: int
+    contract_amount: Optional[float] = None
+    currency: Optional[str] = "CNY"
     description: Optional[str] = None
-    project_file: Optional[str] = None
 
 class PerformanceCreate(PerformanceBase):
     pass
@@ -53,10 +57,14 @@ class PerformanceCreate(PerformanceBase):
 class PerformanceUpdate(BaseModel):
     project_name: Optional[str] = None
     client_name: Optional[str] = None
-    project_amount: Optional[float] = None
-    completion_date: Optional[datetime] = None
+    project_type: Optional[str] = None
+    business_field: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    year: Optional[int] = None
+    contract_amount: Optional[float] = None
+    currency: Optional[str] = None
     description: Optional[str] = None
-    project_file: Optional[str] = None
 
 class Performance(PerformanceBase):
     id: int

@@ -333,7 +333,7 @@ export default {
     // 方法
     const loadDataSources = async () => {
       try {
-        const response = await api.get('/api/search/sources')
+        const response = await api.get('/search/sources')
         dataSources.value = response.data
       } catch (error) {
         ElMessage.error('加载数据源失败')
@@ -342,7 +342,7 @@ export default {
     
     const loadBusinessFields = async () => {
       try {
-        const response = await api.get('/api/config/business-fields')
+        const response = await api.get('/config/business-fields')
         businessFields.value = response.data.business_fields
       } catch (error) {
         ElMessage.error('加载业务领域失败')
@@ -351,7 +351,7 @@ export default {
     
     const loadTasks = async () => {
       try {
-        const response = await api.get('/api/search/tasks')
+        const response = await api.get('/search/tasks')
         searchTasks.value = response.data
       } catch (error) {
         ElMessage.error('加载搜索任务失败')
@@ -362,7 +362,7 @@ export default {
       if (!selectedTask.value) return
       
       try {
-        const response = await api.get('/api/search/results', {
+        const response = await api.get('/search/results', {
           params: { task_id: selectedTask.value.id }
         })
         searchResults.value = response.data
@@ -385,7 +385,7 @@ export default {
           search_keywords: searchForm.search_keywords ? searchForm.search_keywords.split(',').map(k => k.trim()) : []
         }
         
-        const response = await api.post('/api/search/tasks', taskData)
+        const response = await api.post('/search/tasks', taskData)
         ElMessage.success('搜索任务已创建，正在后台执行')
         
         // 刷新任务列表
@@ -427,7 +427,7 @@ export default {
     const deleteTask = async (task) => {
       try {
         await ElMessageBox.confirm('确定要删除这个搜索任务吗？', '确认删除')
-        await api.delete(`/api/search/tasks/${task.id}`)
+        await api.delete(`/search/tasks/${task.id}`)
         ElMessage.success('删除成功')
         await loadTasks()
         
@@ -444,7 +444,7 @@ export default {
     
     const importResult = async (result) => {
       try {
-        await api.post(`/api/search/results/${result.id}/import`)
+        await api.post(`/search/results/${result.id}/import`)
         ElMessage.success('导入成功')
         await loadResults()
       } catch (error) {
@@ -464,7 +464,7 @@ export default {
         await ElMessageBox.confirm(`确定要导入所有 ${unimportedResults.length} 个结果吗？`, '确认批量导入')
         
         for (const result of unimportedResults) {
-          await api.post(`/api/search/results/${result.id}/import`)
+          await api.post(`/search/results/${result.id}/import`)
         }
         
         ElMessage.success(`成功导入 ${unimportedResults.length} 个结果`)
@@ -487,7 +487,7 @@ export default {
     const deleteResult = async (result) => {
       try {
         await ElMessageBox.confirm('确定要删除这个搜索结果吗？', '确认删除')
-        await api.delete(`/api/search/results/${result.id}`)
+        await api.delete(`/search/results/${result.id}`)
         ElMessage.success('删除成功')
         await loadResults()
       } catch (error) {

@@ -300,6 +300,34 @@
               <LawyerCertificatesPanel />
             </div>
           </el-tab-pane>
+
+          <el-tab-pane name="performances">
+            <template #label>
+              <div class="tab-label">
+                <el-icon><TrendCharts /></el-icon>
+                <span>业绩管理</span>
+                <el-badge v-if="performanceStats.total_performances" :value="performanceStats.total_performances" class="tab-badge" />
+              </div>
+            </template>
+            
+            <div class="performance-panel">
+              <PerformancePanel />
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane name="awards">
+            <template #label>
+              <div class="tab-label">
+                <el-icon><Trophy /></el-icon>
+                <span>奖项管理</span>
+                <el-badge v-if="awardStats.total_awards" :value="awardStats.total_awards" class="tab-badge" />
+              </div>
+            </template>
+            
+            <div class="award-panel">
+              <AwardPanel />
+            </div>
+          </el-tab-pane>
           
           <el-tab-pane name="temporary">
             <template #label>
@@ -642,16 +670,25 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   DataBoard, Document, FolderOpened, Clock, PieChart, TrendCharts, Check, Timer, DataAnalysis,
-  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled, User, UserFilled
+  Upload, Refresh, Search, Download, Edit, Delete, MagicStick, View, UploadFilled, User, UserFilled,
+  Trophy
 } from '@element-plus/icons-vue'
 import { apiService } from '@/services/api'
 import LawyerCertificatesPanel from './LawyerCertificatesPanel.vue'
+import PerformancePanel from './PerformancePanel.vue'
+import AwardPanel from './AwardPanel.vue'
 
 // 文件统计数据
 const fileStats = ref({})
 
 // 律师证统计数据
 const lawyerStats = ref({})
+
+// 业绩统计数据
+const performanceStats = ref({})
+
+// 奖项统计数据
+const awardStats = ref({})
 
 // 标签页
 const activeTab = ref('permanent')
@@ -720,6 +757,32 @@ const fetchLawyerStats = async () => {
     }
   } catch (error) {
     console.error('获取律师证统计失败:', error)
+  }
+}
+
+// 获取业绩统计
+const fetchPerformanceStats = async () => {
+  try {
+    const response = await apiService.get('/performances/stats')
+    const data = response?.data || response
+    if (data && data.success) {
+      performanceStats.value = data.stats
+    }
+  } catch (error) {
+    console.error('获取业绩统计失败:', error)
+  }
+}
+
+// 获取奖项统计
+const fetchAwardStats = async () => {
+  try {
+    const response = await apiService.get('/awards/stats')
+    const data = response?.data || response
+    if (data && data.success) {
+      awardStats.value = data.stats
+    }
+  } catch (error) {
+    console.error('获取奖项统计失败:', error)
   }
 }
 
@@ -1105,6 +1168,8 @@ const resetUploadForm = () => {
 onMounted(async () => {
   await fetchFileStats()
   await fetchLawyerStats()
+  await fetchPerformanceStats()
+  await fetchAwardStats()
   await fetchFiles('permanent')
   await loadCategoryOptions()
 })

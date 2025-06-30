@@ -314,12 +314,24 @@
                           <span class="file-meta">{{ formatFileSize(file.file_size) }} • {{ file.category }}</span>
                         </div>
                       </div>
-                      <div class="file-actions">
-                        <el-switch
-                          v-model="file.enableWatermark"
-                          size="small"
-                          active-text="水印"
-                        />
+                      <div class="file-controls">
+                        <div class="control-switches">
+                          <el-switch
+                            v-model="file.enableWatermark"
+                            size="small"
+                            active-text="水印"
+                          />
+                          <el-switch
+                            v-model="file.addPageBreak"
+                            size="small"
+                            active-text="分页"
+                          />
+                          <el-switch
+                            v-model="file.showPageNumbers"
+                            size="small"
+                            active-text="页码"
+                          />
+                        </div>
                         <el-button
                           size="small"
                           text
@@ -369,20 +381,32 @@
                       <div class="file-size">{{ formatFileSize(file.size) }}</div>
                     </div>
                     <div class="file-controls">
-                      <el-switch
-                        v-model="file.enableWatermark"
-                  size="small"
-                        active-text="水印"
-                      />
+                      <div class="control-switches">
+                        <el-switch
+                          v-model="file.enableWatermark"
+                          size="small"
+                          active-text="水印"
+                        />
+                        <el-switch
+                          v-model="file.addPageBreak"
+                          size="small"
+                          active-text="分页"
+                        />
+                        <el-switch
+                          v-model="file.showPageNumbers"
+                          size="small"
+                          active-text="页码"
+                        />
+                      </div>
                       <el-button
                         size="small"
                         text
                         type="danger"
                         @click="removeSelectedFile(index)"
-                >
+                      >
                         <el-icon><Delete /></el-icon>
                       </el-button>
-              </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -710,7 +734,7 @@ const updateDocumentTitle = () => {
 
 // 监听FileUpload组件的change事件，累积添加文件
 const handleFilesSelected = (files) => {
-  // 添加新选择的文件到总列表，并为每个文件添加水印开关
+  // 添加新选择的文件到总列表，并为每个文件添加控制开关
   files.forEach(file => {
     // 提取文件基本信息，避免reactive包装影响File对象属性访问
     const fileInfo = {
@@ -721,8 +745,10 @@ const handleFilesSelected = (files) => {
       size: file.size || 0,
       type: file.type || '',
       lastModified: file.lastModified || Date.now(),
-      // 添加水印开关 - 根据总开关状态设置默认值
-      enableWatermark: form.enableWatermark
+      // 添加控制开关
+      enableWatermark: form.enableWatermark,
+      addPageBreak: true,  // 默认开启分页符
+      showPageNumbers: false  // 默认关闭页码
     }
     
     // 使用reactive包装文件信息对象
@@ -978,10 +1004,12 @@ const confirmPermanentFileSelection = () => {
     !selectedPermanentFiles.value.some(existing => existing.id === file.id)
   )
   
-  // 为每个文件添加水印开关，使用reactive确保响应式 - 根据总开关状态设置默认值
+  // 为每个文件添加控制开关，使用reactive确保响应式
   const reactiveNewFiles = newFiles.map(file => reactive({
     ...file,
-    enableWatermark: form.enableWatermark // 跟随总开关状态
+    enableWatermark: form.enableWatermark, // 跟随总开关状态
+    addPageBreak: true,  // 默认开启分页符
+    showPageNumbers: false  // 默认关闭页码
   }))
   
   selectedPermanentFiles.value.push(...reactiveNewFiles)
@@ -1048,6 +1076,20 @@ const convertFiles = async () => {
       ...selectedPermanentFiles.value.map(file => file.enableWatermark)
     ]
     formData.append('file_watermark_settings', JSON.stringify(allFileWatermarkSettings))
+    
+    // 添加每个文件的分页符设置
+    const allFilePageBreakSettings = [
+      ...allSelectedFiles.value.map(file => file.addPageBreak),
+      ...selectedPermanentFiles.value.map(file => file.addPageBreak)
+    ]
+    formData.append('file_page_break_settings', JSON.stringify(allFilePageBreakSettings))
+    
+    // 添加每个文件的页码设置
+    const allFilePageNumberSettings = [
+      ...allSelectedFiles.value.map(file => file.showPageNumbers),
+      ...selectedPermanentFiles.value.map(file => file.showPageNumbers)
+    ]
+    formData.append('file_page_number_settings', JSON.stringify(allFilePageNumberSettings))
     
     // 添加选择的常驻文件ID
     const permanentFileIds = selectedPermanentFiles.value.map(file => file.id)
@@ -1632,7 +1674,7 @@ watch(() => form.enableWatermark, (newValue) => {
   }
 }
 
-      .file-actions {
+      .file-controls {
         display: flex;
         align-items: center;
         gap: 8px;
@@ -1701,6 +1743,16 @@ watch(() => form.enableWatermark, (newValue) => {
       display: flex;
       align-items: center;
       gap: 8px;
+      
+      .control-switches {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        
+        .el-switch {
+          margin: 0;
+        }
+      }
     }
   }
 }
