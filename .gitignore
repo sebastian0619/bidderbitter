@@ -54,4 +54,9 @@ coverage/
 .nyc_output/
 
 # 本地配置
+config.local.*
+
+# 本地Docker配置（包含代理等敏感信息）
+docker-compose.local.yml
+docker-compose.*.local.yml 
 config.local.* 

@@ -135,6 +135,96 @@
         </el-form>
       </el-card>
 
+      <!-- MCP服务配置 -->
+      <el-card class="settings-card mcp-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon mcp-icon">
+                <el-icon><Grid /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>MCP服务配置</h3>
+                <span class="card-subtitle">配置模型上下文协议服务</span>
+              </div>
+            </div>
+            <el-button 
+              type="primary" 
+              size="default"
+              @click="saveMCPSettings"
+              :loading="saving"
+              class="save-btn"
+            >
+              <el-icon><Check /></el-icon>
+              保存设置
+            </el-button>
+          </div>
+        </template>
+
+        <el-form :model="mcpSettings" label-width="140px" class="settings-form">
+          <div class="form-group">
+            <el-form-item label="启用MCP服务">
+              <el-switch v-model="mcpSettings.mcp_enabled" active-text="启用" inactive-text="禁用" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                启用后AI服务可以调用外部MCP工具
+              </div>
+            </el-form-item>
+
+            <el-form-item label="MCP服务器URL">
+              <el-input 
+                v-model="mcpSettings.mcp_server_url"
+                placeholder="例如: http://localhost:8000/mcp"
+                class="full-width"
+                :disabled="!mcpSettings.mcp_enabled"
+              >
+                <template #prefix>
+                  <el-icon><Link /></el-icon>
+                </template>
+              </el-input>
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                MCP服务器的基础URL地址
+              </div>
+            </el-form-item>
+
+            <el-form-item label="MCP API密钥">
+              <el-input 
+                v-model="mcpSettings.mcp_api_key"
+                type="password"
+                placeholder="输入MCP服务的API密钥"
+                show-password
+                class="full-width"
+                :disabled="!mcpSettings.mcp_enabled"
+              >
+                <template #prefix>
+                  <el-icon><Key /></el-icon>
+                </template>
+              </el-input>
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                MCP服务的认证密钥（如需要）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="请求超时时间">
+              <el-input-number 
+                v-model="mcpSettings.mcp_timeout"
+                :min="5"
+                :max="300"
+                :step="5"
+                :disabled="!mcpSettings.mcp_enabled"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                MCP工具调用的超时时间（秒），默认30秒
+              </div>
+            </el-form-item>
+          </div>
+        </el-form>
+      </el-card>
+
       <!-- 视觉模型配置 -->
       <el-card class="settings-card vision-card">
         <template #header>
@@ -791,6 +881,190 @@
         </el-form>
       </el-card>
 
+      <!-- AI分析高级设置 -->
+      <el-card class="settings-card ai-analysis-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon ai-analysis-icon">
+                <el-icon><Setting /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>AI分析高级配置</h3>
+                <span class="card-subtitle">配置文档分析时的详细功能选项</span>
+              </div>
+            </div>
+            <el-button 
+              type="primary" 
+              size="default"
+              @click="saveAIAnalysisSettings"
+              :loading="saving"
+              class="save-btn"
+            >
+              <el-icon><Check /></el-icon>
+              保存设置
+            </el-button>
+          </div>
+        </template>
+
+        <el-form :model="aiAnalysisSettings" label-width="180px" class="settings-form">
+          <div class="form-group">
+            <el-form-item label="启用表格结构分析">
+              <el-switch v-model="aiAnalysisSettings.ai_analysis_enable_table_structure" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                分析文档中的表格结构，提取表格数据（可能影响处理速度）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="启用图片分类">
+              <el-switch v-model="aiAnalysisSettings.ai_analysis_enable_picture_classification" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                对文档中的图片进行分类识别（如印章、签名、图表等）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="启用图片描述">
+              <el-switch v-model="aiAnalysisSettings.ai_analysis_enable_picture_description" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                生成文档中图片的详细描述（需要AI视觉模型支持）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="生成页面图片">
+              <el-switch v-model="aiAnalysisSettings.ai_analysis_generate_page_images" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                为每个页面生成独立的图片文件（增加存储空间使用）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="生成图片文件">
+              <el-switch v-model="aiAnalysisSettings.ai_analysis_generate_picture_images" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                提取文档中的图片并保存为独立文件（增加存储空间使用）
+              </div>
+            </el-form-item>
+          </div>
+        </el-form>
+      </el-card>
+
+      <!-- OCR精度优化设置 -->
+      <el-card class="settings-card ocr-advanced-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon ocr-advanced-icon">
+                <el-icon><View /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>OCR精度优化配置</h3>
+                <span class="card-subtitle">调整OCR识别参数以提高文本提取准确性</span>
+              </div>
+            </div>
+            <el-button 
+              type="primary" 
+              size="default"
+              @click="saveOCRAdvancedSettings"
+              :loading="saving"
+              class="save-btn"
+            >
+              <el-icon><Check /></el-icon>
+              保存设置
+            </el-button>
+          </div>
+        </template>
+
+        <el-form :model="ocrAdvancedSettings" label-width="180px" class="settings-form">
+          <div class="form-group">
+            <el-form-item label="置信度阈值">
+              <el-slider 
+                v-model="ocrAdvancedSettings.docling_confidence_threshold"
+                :min="0.1"
+                :max="1.0"
+                :step="0.05"
+                :format-tooltip="(val) => `${(val * 100).toFixed(0)}%`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                控制OCR识别的置信度阈值，较低值可能提高召回率但降低精度
+              </div>
+            </el-form-item>
+
+            <el-form-item label="位图区域阈值">
+              <el-slider 
+                v-model="ocrAdvancedSettings.docling_bitmap_area_threshold"
+                :min="0.01"
+                :max="0.1"
+                :step="0.01"
+                :format-tooltip="(val) => `${(val * 100).toFixed(1)}%`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                控制位图区域的最小面积阈值，影响小文本的识别
+              </div>
+            </el-form-item>
+
+            <el-form-item label="强制全页OCR">
+              <el-switch v-model="ocrAdvancedSettings.docling_force_full_page_ocr" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                强制对所有页面进行OCR，可能提高漏行检测但增加处理时间
+              </div>
+            </el-form-item>
+
+            <el-form-item label="识别网络类型">
+              <el-select v-model="ocrAdvancedSettings.docling_recog_network" class="full-width">
+                <el-option label="标准模式 (standard)" value="standard">
+                  <div class="option-item">
+                    <span class="option-label">标准模式</span>
+                    <span class="option-desc">平衡精度和速度，推荐使用</span>
+                  </div>
+                </el-option>
+                <el-option label="快速模式 (fast)" value="fast">
+                  <div class="option-item">
+                    <span class="option-label">快速模式</span>
+                    <span class="option-desc">处理速度更快，但精度可能略低</span>
+                  </div>
+                </el-option>
+              </el-select>
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                选择OCR识别网络类型，影响识别精度和处理速度
+              </div>
+            </el-form-item>
+
+            <el-form-item label="GPU加速">
+              <el-switch v-model="ocrAdvancedSettings.docling_use_gpu" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                使用GPU加速OCR处理（需要CUDA支持）
+              </div>
+            </el-form-item>
+
+            <el-form-item label="图像缩放比例">
+              <el-slider 
+                v-model="ocrAdvancedSettings.docling_images_scale"
+                :min="1.0"
+                :max="3.0"
+                :step="0.1"
+                :format-tooltip="(val) => `${val.toFixed(1)}x`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                处理前对图像进行缩放，较高值可能提高小文本识别但增加内存使用
+              </div>
+            </el-form-item>
+          </div>
+        </el-form>
+      </el-card>
+
       <!-- 操作按钮 -->
       <div class="action-buttons">
         <el-button type="success" size="large" @click="saveAllSettings" :loading="saving" class="primary-action">
@@ -843,6 +1117,13 @@ const visionSettings = ref({
   ollama_vision_model: 'llava:latest'
 })
 
+const mcpSettings = ref({
+  mcp_enabled: false,
+  mcp_server_url: '',
+  mcp_api_key: '',
+  mcp_timeout: 30
+})
+
 const uploadSettings = ref({
   upload_max_file_size: '524288000',
   upload_allowed_types: 'pdf,docx,doc,png,jpg,jpeg'
@@ -893,6 +1174,25 @@ const ocrSettings = ref({
   easyocr_languages: ['ch_sim', 'en'],
   easyocr_use_gpu: false,
   easyocr_download_proxy: ''
+})
+
+// AI分析高级设置
+const aiAnalysisSettings = ref({
+  ai_analysis_enable_table_structure: false,
+  ai_analysis_enable_picture_classification: false,
+  ai_analysis_enable_picture_description: false,
+  ai_analysis_generate_page_images: false,
+  ai_analysis_generate_picture_images: false
+})
+
+// OCR精度优化设置
+const ocrAdvancedSettings = ref({
+  docling_confidence_threshold: 0.5,
+  docling_bitmap_area_threshold: 0.05,
+  docling_force_full_page_ocr: false,
+  docling_recog_network: 'standard',
+  docling_use_gpu: false,
+  docling_images_scale: 2.0
 })
 
 // 动态帮助函数
@@ -960,6 +1260,19 @@ const loadSettings = async () => {
           visionSettings.value[key] = settings[key].value
         }
       })
+
+      // 填充MCP设置
+      Object.keys(mcpSettings.value).forEach(key => {
+        if (settings[key]) {
+          if (key === 'mcp_enabled') {
+            mcpSettings.value[key] = settings[key].value === 'true'
+          } else if (key === 'mcp_timeout') {
+            mcpSettings.value[key] = parseInt(settings[key].value) || 30
+          } else {
+            mcpSettings.value[key] = settings[key].value
+          }
+        }
+      })
       
       // 如果没有独立的视觉提供商配置，设为空字符串表示使用主AI服务
       if (!settings.vision_provider || settings.vision_provider.value === aiSettings.value.ai_provider) {
@@ -1004,6 +1317,30 @@ const loadSettings = async () => {
           } else {
             ocrSettings.value[key] = settings[key].value
           }
+        }
+      })
+      
+      // 填充AI分析高级设置
+      Object.keys(aiAnalysisSettings.value).forEach(key => {
+        if (settings[key]) {
+          let value = settings[key].value
+          if (typeof value === 'string') {
+            value = value.toLowerCase() === 'true'
+          }
+          aiAnalysisSettings.value[key] = Boolean(value)
+        }
+      })
+      
+      // 填充OCR高级设置
+      Object.keys(ocrAdvancedSettings.value).forEach(key => {
+        if (settings[key]) {
+          let value = settings[key].value
+          if (key === 'docling_confidence_threshold' || key === 'docling_bitmap_area_threshold' || key === 'docling_images_scale') {
+            value = parseFloat(value) || 0.5
+          } else if (key === 'docling_force_full_page_ocr' || key === 'docling_use_gpu') {
+            value = value.toLowerCase() === 'true'
+          }
+          ocrAdvancedSettings.value[key] = value
         }
       })
     }
@@ -1124,45 +1461,90 @@ const saveVisionSettings = async () => {
   }
 }
 
+const saveMCPSettings = async () => {
+  try {
+    saving.value = true
+    const response = await apiService.updateSettings(mcpSettings.value)
+    
+    if (response.success) {
+      ElMessage.success('MCP服务配置保存成功')
+    }
+  } catch (error) {
+    console.error('保存MCP设置失败:', error)
+    ElMessage.error('保存MCP设置失败')
+  } finally {
+    saving.value = false
+  }
+}
+
 const saveOCRSettings = async () => {
   try {
     saving.value = true
     console.log('🔧 开始保存OCR设置:', ocrSettings.value)
     
-    // 处理语言数组的序列化
     const settingsToSave = { ...ocrSettings.value }
-    if (Array.isArray(settingsToSave.docling_ocr_languages)) {
+    
+    // 处理OCR语言数组的序列化
+    if (settingsToSave.docling_ocr_languages && Array.isArray(settingsToSave.docling_ocr_languages)) {
       settingsToSave.docling_ocr_languages = JSON.stringify(settingsToSave.docling_ocr_languages)
     }
-    if (Array.isArray(settingsToSave.easyocr_languages)) {
+    if (settingsToSave.easyocr_languages && Array.isArray(settingsToSave.easyocr_languages)) {
       settingsToSave.easyocr_languages = JSON.stringify(settingsToSave.easyocr_languages)
     }
     
     const response = await apiService.updateSettings(settingsToSave)
-    console.log('✅ OCR设置保存响应:', response)
     
-    const data = response?.data || response;
-    if (data && data.success) {
-      ElMessage.success({
-        message: `OCR设置保存成功！更新了 ${data.updated_settings?.length || 0} 个设置`,
-        duration: 3000
-      })
-      console.log('🔄 重新加载设置以确保同步...')
-      // 重新加载设置以确保同步
-      await loadSettings()
-      // 重新加载OCR状态
-      await refreshOCRStatus()
+    if (response.success) {
+      ElMessage.success('OCR设置保存成功')
+      await loadSettings() // 重新加载设置
     } else {
-      console.error('❌ 保存响应失败:', data)
-      ElMessage.error(data?.message || 'OCR设置保存失败')
+      ElMessage.error('OCR设置保存失败')
     }
   } catch (error) {
-    console.error('❌ 保存OCR设置失败:', error)
-    const errorMsg = error.response?.data?.detail || error.message || '保存OCR设置失败'
-    ElMessage.error({
-      message: `保存失败: ${errorMsg}`,
-      duration: 5000
-    })
+    console.error('保存OCR设置失败:', error)
+    ElMessage.error('保存OCR设置失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+const saveAIAnalysisSettings = async () => {
+  try {
+    saving.value = true
+    console.log('🔧 开始保存AI分析设置:', aiAnalysisSettings.value)
+    
+    const response = await apiService.updateSettings(aiAnalysisSettings.value)
+    
+    if (response.success) {
+      ElMessage.success('AI分析设置保存成功')
+      await loadSettings() // 重新加载设置
+    } else {
+      ElMessage.error('AI分析设置保存失败')
+    }
+  } catch (error) {
+    console.error('保存AI分析设置失败:', error)
+    ElMessage.error('保存AI分析设置失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+const saveOCRAdvancedSettings = async () => {
+  try {
+    saving.value = true
+    console.log('🔧 开始保存OCR高级设置:', ocrAdvancedSettings.value)
+    
+    const response = await apiService.updateSettings(ocrAdvancedSettings.value)
+    
+    if (response.success) {
+      ElMessage.success('OCR高级设置保存成功')
+      await loadSettings() // 重新加载设置
+    } else {
+      ElMessage.error('OCR高级设置保存失败')
+    }
+  } catch (error) {
+    console.error('保存OCR高级设置失败:', error)
+    ElMessage.error('保存OCR高级设置失败')
   } finally {
     saving.value = false
   }
@@ -2170,4 +2552,4 @@ onMounted(async () => {
     gap: 8px;
   }
 }
-</style> 
+</style>

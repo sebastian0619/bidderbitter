@@ -1,0 +1,73 @@
+{
+  "user_feedback": [
+    {
+      "type": "performance_correction",
+      "performance_id": 14,
+      "original_values": {
+        "project_name": "5. 法律服务委托协议",
+        "client_name": "待AI分析",
+        "business_field": "法律服务",
+        "project_type": "重大个案"
+      },
+      "corrected_values": {
+        "project_name": "5. 法律服务委托协议_修正版",
+        "client_name": "待AI分析_修正版",
+        "business_field": "并购重组",
+        "project_type": "重大个案"
+      },
+      "learning_notes": null,
+      "source_document": "/app/uploads/performances/20250701_074418_4_5. 法律服务委托协议.pdf",
+      "ai_analysis_status": "pending",
+      "confidence_score": 0.0,
+      "timestamp": "2025-07-02T09:34:16.611515",
+      "id": 1
+    }
+  ],
+  "correction_patterns": [
+    {
+      "field": "project_name",
+      "original_value": "5. 法律服务委托协议",
+      "corrected_value": "5. 法律服务委托协议_修正版",
+      "performance_id": 14,
+      "context": {
+        "project_name": "5. 法律服务委托协议",
+        "client_name": "待AI分析",
+        "business_field": "法律服务",
+        "project_type": "重大个案"
+      },
+      "timestamp": "2025-07-02T09:34:16.612039",
+      "id": 1
+    },
+    {
+      "field": "client_name",
+      "original_value": "待AI分析",
+      "corrected_value": "待AI分析_修正版",
+      "performance_id": 14,
+      "context": {
+        "project_name": "5. 法律服务委托协议",
+        "client_name": "待AI分析",
+        "business_field": "法律服务",
+        "project_type": "重大个案"
+      },
+      "timestamp": "2025-07-02T09:34:16.612425",
+      "id": 2
+    },
+    {
+      "field": "business_field",
+      "original_value": "法律服务",
+      "corrected_value": "并购重组",
+      "performance_id": 14,
+      "context": {
+        "project_name": "5. 法律服务委托协议",
+        "client_name": "待AI分析",
+        "business_field": "法律服务",
+        "project_type": "重大个案"
+      },
+      "timestamp": "2025-07-02T09:34:16.612696",
+      "id": 3
+    }
+  ],
+  "learning_rules": [],
+  "last_updated": "2025-07-02T09:34:16.612699",
+  "version": "1.0"
+}

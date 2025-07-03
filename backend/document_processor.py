@@ -4,7 +4,12 @@ import time
 from datetime import datetime
 import uuid
 import fitz  # PyMuPDF
-import magic
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except ImportError:
+    logger.warning("python-magic未安装，将使用文件扩展名进行类型检测")
+    MAGIC_AVAILABLE = False
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -17,10 +22,13 @@ import shutil
 import tempfile
 from pathlib import Path
 import math
-from docling.document_converter import DocumentConverter
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
+# 导入统一的DoclingService
+try:
+    from docling_service import docling_service
+    DOCLING_SERVICE_AVAILABLE = True
+except ImportError as e:
+    DOCLING_SERVICE_AVAILABLE = False
+    docling_service = None
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -221,45 +229,12 @@ class DoclingDocumentProcessor:
             return Inches(5.91)
     
     def _create_converter(self):
-        """创建Docling文档转换器，支持OCR配置"""
-        try:
-            from docling.document_converter import DocumentConverter
-            from docling.datamodel.base_models import InputFormat
-            from docling.datamodel.pipeline_options import PdfPipelineOptions
-            
-            # 从AI服务获取OCR配置
-            try:
-                from ai_service import ai_service
-                enable_ocr = getattr(ai_service, 'enable_docling_ocr', True)
-                ocr_languages = getattr(ai_service, 'docling_ocr_languages', ['ch_sim', 'en'])
-            except:
-                enable_ocr = True
-                ocr_languages = ['ch_sim', 'en']
-            
-            # 创建PDF处理选项
-            pipeline_options = PdfPipelineOptions()
-            pipeline_options.do_ocr = enable_ocr  # 根据配置启用/禁用OCR
-            pipeline_options.do_table_structure = True  # 启用表格结构识别
-            
-            # 如果启用OCR，配置OCR选项
-            if enable_ocr:
-                logger.info(f"启用Docling OCR，支持语言: {ocr_languages}")
-                # 这里可以配置OCR的具体参数，如果Docling支持的话
-            else:
-                logger.info("禁用Docling OCR")
-            
-            # 创建转换器
-            converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: pipeline_options
-                }
-            )
-            logger.info(f"Docling转换器创建成功（OCR: {'启用' if enable_ocr else '禁用'}）")
-            return converter
-            
-        except Exception as e:
-            logger.error(f"创建Docling转换器失败: {e}")
-            logger.warning("Docling不可用，将使用PyMuPDF作为备选方案")
+        """使用统一的DoclingService"""
+        if DOCLING_SERVICE_AVAILABLE and docling_service:
+            logger.info("使用统一的DoclingService进行文档处理")
+            return docling_service
+        else:
+            logger.warning("DoclingService不可用，将使用PyMuPDF作为备选方案")
             return None
     
     def _add_page_content_with_smart_sizing(self, doc: Document, image_path: str, page_num: int, 
@@ -374,34 +349,48 @@ class DoclingDocumentProcessor:
                 doc.add_paragraph(f"图片处理失败: {str(fallback_error)}")
     
     async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
-        """使用Docling处理PDF文件 - 充分利用Docling的文档理解能力"""
+        """使用DoclingService处理PDF文件 - 充分利用Docling的文档理解能力"""
         try:
             if not self.converter:
-                logger.warning("Docling转换器不可用，使用PyMuPDF备选方案")
+                logger.warning("DoclingService不可用，使用PyMuPDF备选方案")
                 return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
-            logger.info(f"开始使用Docling处理PDF: {filename}")
+            logger.info(f"开始使用DoclingService处理PDF: {filename}")
             
-            # 使用Docling转换PDF，获取完整的文档结构
-            conv_result = self.converter.convert(pdf_path)
-            docling_doc = conv_result.document
+            # 使用DoclingService转换PDF
+            conv_result = await self.converter.convert_document(pdf_path)
+            
+            if not conv_result.get("success"):
+                logger.warning(f"DoclingService转换失败: {conv_result.get('error')}")
+                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
             # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
                 filename_without_ext = os.path.splitext(filename)[0]
                 self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
-            # 提取并添加文档元数据
-            await self._add_document_metadata(doc, docling_doc)
+            # 添加文档内容
+            text_content = conv_result.get("text", "")
+            if text_content.strip():
+                content_heading = create_clean_heading(doc, "文档内容", level=2)
+                # 将长文本分段
+                paragraphs = text_content.split('\n\n')
+                for para_text in paragraphs:
+                    if para_text.strip():
+                        doc.add_paragraph(para_text.strip())
             
-            # 按页面处理文档内容
-            await self._process_docling_pages(doc, docling_doc, pdf_path)
+            # 添加文档元数据
+            metadata = conv_result.get("metadata", {})
+            if metadata:
+                stats_heading = create_clean_heading(doc, "文档信息", level=3)
+                stats_para = doc.add_paragraph()
+                if "pages" in metadata:
+                    stats_para.add_run(f"总页数: {metadata['pages']} 页\n")
+                if "file_type" in metadata:
+                    stats_para.add_run(f"文件类型: {metadata['file_type']}\n")
             
-            # 提取并添加表格
-            await self._extract_and_add_tables(doc, docling_doc)
-            
-            # 提取并添加图像
-            await self._extract_and_add_figures(doc, docling_doc, pdf_path)
+            # 添加页面截图作为补充
+            await self._add_page_screenshots(doc, pdf_path)
             
             # 在PDF处理完成后添加分页符（除非是最后一个文件）
             if not is_last_file:
@@ -412,206 +401,16 @@ class DoclingDocumentProcessor:
             
             return {
                 "success": True,
-                "message": "PDF处理成功（Docling增强）",
+                "message": "PDF处理成功（DoclingService）",
                 "text_extracted": True,
-                "pages_processed": len(docling_doc.pages),
-                "tables_found": len([item for item in docling_doc.main_text if hasattr(item, 'category') and 'table' in str(item.category).lower()]),
-                "figures_found": len([item for item in docling_doc.main_text if hasattr(item, 'category') and 'figure' in str(item.category).lower()])
+                "text_length": len(text_content),
+                "metadata": metadata
             }
             
         except Exception as e:
-            logger.error(f"Docling处理PDF失败: {e}")
+            logger.error(f"DoclingService处理PDF失败: {e}")
             # 降级到PyMuPDF
             return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
-    
-    async def _add_document_metadata(self, doc: Document, docling_doc):
-        """添加文档元数据信息"""
-        try:
-            # 如果有文档标题，添加提取的标题
-            if hasattr(docling_doc, 'title') and docling_doc.title:
-                heading = create_clean_heading(doc, "文档标题", level=3)
-                doc.add_paragraph(docling_doc.title)
-            
-            # 如果有作者信息，添加作者
-            if hasattr(docling_doc, 'authors') and docling_doc.authors:
-                heading = create_clean_heading(doc, "文档作者", level=3)
-                doc.add_paragraph(', '.join(docling_doc.authors))
-            
-            # 如果有摘要，添加摘要
-            if hasattr(docling_doc, 'abstract') and docling_doc.abstract:
-                heading = create_clean_heading(doc, "文档摘要", level=3)
-                doc.add_paragraph(docling_doc.abstract)
-            
-            # 添加文档统计信息
-            stats_heading = create_clean_heading(doc, "文档信息", level=3)
-            stats_para = doc.add_paragraph()
-            stats_para.add_run(f"总页数: {len(docling_doc.pages)} 页\n")
-            
-            # 计算文档元素统计
-            text_elements = 0
-            table_elements = 0
-            figure_elements = 0
-            
-            for item in docling_doc.main_text:
-                if hasattr(item, 'category'):
-                    category_str = str(item.category).lower()
-                    if 'table' in category_str:
-                        table_elements += 1
-                    elif 'figure' in category_str:
-                        figure_elements += 1
-                    else:
-                        text_elements += 1
-            
-            stats_para.add_run(f"文本段落: {text_elements} 个\n")
-            stats_para.add_run(f"表格: {table_elements} 个\n")
-            stats_para.add_run(f"图表: {figure_elements} 个\n")
-            
-        except Exception as e:
-            logger.warning(f"添加文档元数据失败: {e}")
-    
-    async def _process_docling_pages(self, doc: Document, docling_doc, pdf_path: str):
-        """处理Docling提取的页面内容"""
-        try:
-            # 添加主要文本内容
-            if docling_doc.main_text:
-                content_heading = create_clean_heading(doc, "文档内容", level=2)
-                
-                current_paragraph = None
-                
-                for item in docling_doc.main_text:
-                    try:
-                        # 获取文本内容
-                        text_content = ""
-                        if hasattr(item, 'text') and item.text:
-                            text_content = item.text.strip()
-                        elif hasattr(item, 'export_to_text'):
-                            text_content = item.export_to_text().strip()
-                        
-                        if not text_content:
-                            continue
-                        
-                        # 根据元素类型处理
-                        if hasattr(item, 'category'):
-                            category_str = str(item.category).lower()
-                            
-                            if 'heading' in category_str or 'title' in category_str:
-                                # 标题类型
-                                create_clean_heading(doc, text_content, level=3)
-                                current_paragraph = None
-                            elif 'table' in category_str:
-                                # 表格类型 - 在单独的方法中处理
-                                pass
-                            elif 'figure' in category_str:
-                                # 图片类型 - 在单独的方法中处理
-                                pass
-                            else:
-                                # 普通文本
-                                if not current_paragraph or len(current_paragraph.text) > 500:
-                                    current_paragraph = doc.add_paragraph()
-                                current_paragraph.add_run(text_content + "\n")
-                        else:
-                            # 没有类别信息的文本
-                            if not current_paragraph or len(current_paragraph.text) > 500:
-                                current_paragraph = doc.add_paragraph()
-                            current_paragraph.add_run(text_content + "\n")
-                            
-                    except Exception as item_error:
-                        logger.warning(f"处理文档项目失败: {item_error}")
-                        continue
-            
-            # 如果没有主要文本，导出全部文本
-            else:
-                text_content = docling_doc.export_to_text()
-                if text_content.strip():
-                    content_heading = create_clean_heading(doc, "提取的文本内容", level=2)
-                    # 将长文本分段
-                    paragraphs = text_content.split('\n\n')
-                    for para_text in paragraphs:
-                        if para_text.strip():
-                            doc.add_paragraph(para_text.strip())
-                            
-        except Exception as e:
-            logger.error(f"处理Docling页面内容失败: {e}")
-            # 降级处理
-            try:
-                text_content = docling_doc.export_to_text()
-                if text_content.strip():
-                    create_clean_heading(doc, "文档内容（简化处理）", level=2)
-                    doc.add_paragraph(text_content)
-            except Exception as fallback_error:
-                logger.error(f"降级文本提取也失败: {fallback_error}")
-    
-    async def _extract_and_add_tables(self, doc: Document, docling_doc):
-        """提取并添加表格"""
-        try:
-            tables_found = 0
-            for item in docling_doc.main_text:
-                try:
-                    if hasattr(item, 'category') and 'table' in str(item.category).lower():
-                        tables_found += 1
-                        
-                        # 添加表格标题
-                        table_heading = create_clean_heading(doc, f"表格 {tables_found}", level=3)
-                        
-                        # 尝试提取表格数据
-                        if hasattr(item, 'export_to_text'):
-                            table_text = item.export_to_text()
-                            doc.add_paragraph(table_text)
-                        elif hasattr(item, 'text'):
-                            doc.add_paragraph(item.text)
-                        else:
-                            doc.add_paragraph("表格内容无法提取")
-                        
-                        # 添加分隔符
-                        doc.add_paragraph("─" * 50)
-                        
-                except Exception as table_error:
-                    logger.warning(f"处理表格 {tables_found} 失败: {table_error}")
-                    continue
-            
-            if tables_found > 0:
-                logger.info(f"成功提取 {tables_found} 个表格")
-            
-        except Exception as e:
-            logger.error(f"表格提取失败: {e}")
-    
-    async def _extract_and_add_figures(self, doc: Document, docling_doc, pdf_path: str):
-        """提取并添加图像"""
-        try:
-            figures_found = 0
-            
-            # 先处理Docling识别的图像元素
-            for item in docling_doc.main_text:
-                try:
-                    if hasattr(item, 'category') and 'figure' in str(item.category).lower():
-                        figures_found += 1
-                        
-                        # 添加图像标题
-                        figure_heading = create_clean_heading(doc, f"图表 {figures_found}", level=3)
-                        
-                        # 添加图像描述（如果有）
-                        if hasattr(item, 'text') and item.text:
-                            doc.add_paragraph(f"图表描述: {item.text}")
-                        elif hasattr(item, 'export_to_text'):
-                            desc_text = item.export_to_text()
-                            if desc_text.strip():
-                                doc.add_paragraph(f"图表描述: {desc_text}")
-                        
-                except Exception as figure_error:
-                    logger.warning(f"处理图表 {figures_found} 失败: {figure_error}")
-                    continue
-            
-            # 如果没有找到图像元素，或者需要添加页面截图，使用PyMuPDF渲染页面
-            if figures_found == 0 or True:  # 总是添加页面截图作为补充
-                await self._add_page_screenshots(doc, pdf_path)
-            
-            if figures_found > 0:
-                logger.info(f"成功提取 {figures_found} 个图表元素")
-            
-        except Exception as e:
-            logger.error(f"图像提取失败: {e}")
-            # 降级到页面截图
-            await self._add_page_screenshots(doc, pdf_path)
     
     async def _add_page_screenshots(self, doc: Document, pdf_path: str):
         """添加PDF页面截图作为补充"""
@@ -732,84 +531,65 @@ class DoclingDocumentProcessor:
                 filename_without_ext = os.path.splitext(filename)[0]
                 self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
-            # 尝试使用Docling处理图片
+            # 尝试使用DoclingService处理图片
             if self.converter:
                 try:
-                    logger.info(f"使用Docling处理图片: {filename}")
+                    logger.info(f"使用DoclingService处理图片: {filename}")
                     
-                    # 使用Docling转换图片
-                    conv_result = self.converter.convert(image_path)
-                    docling_doc = conv_result.document
+                    # 使用DoclingService转换图片
+                    conv_result = await self.converter.convert_document(image_path)
                     
-                    # 添加图片元数据信息
-                    with Image.open(image_path) as img:
-                        width, height = img.size
-                        doc.add_paragraph(f"尺寸: {width} x {height} 像素")
-                        doc.add_paragraph(f"格式: {img.format}")
-                        doc.add_paragraph(f"模式: {img.mode}")
-                    
-                    # 如果Docling提取到了文本内容，添加文本
-                    if docling_doc.main_text:
-                        logger.info(f"Docling从图片中提取到文本内容")
-                        text_heading = create_clean_heading(doc, "图片文本内容（OCR识别）", level=3)
+                    if conv_result.get("success"):
+                        # 添加图片元数据信息
+                        with Image.open(image_path) as img:
+                            width, height = img.size
+                            doc.add_paragraph(f"尺寸: {width} x {height} 像素")
+                            doc.add_paragraph(f"格式: {img.format}")
+                            doc.add_paragraph(f"模式: {img.mode}")
                         
-                        for item in docling_doc.main_text:
-                            try:
-                                # 获取文本内容
-                                text_content = ""
-                                if hasattr(item, 'text') and item.text:
-                                    text_content = item.text.strip()
-                                elif hasattr(item, 'export_to_text'):
-                                    text_content = item.export_to_text().strip()
-                                
-                                if text_content:
-                                    doc.add_paragraph(text_content)
-                                    
-                            except Exception as item_error:
-                                logger.warning(f"处理图片文本项目失败: {item_error}")
-                                continue
-                    else:
-                        # 如果没有提取到文本，也尝试直接导出
+                        # 如果提取到了文本内容，添加文本
+                        text_content = conv_result.get("text", "")
+                        if text_content.strip():
+                            logger.info(f"DoclingService从图片中提取到文本内容")
+                            text_heading = create_clean_heading(doc, "图片文本内容（OCR识别）", level=3)
+                            doc.add_paragraph(text_content.strip())
+                        else:
+                            logger.info("DoclingService未从图片中提取到文本内容")
+                        
+                        # 使用智能图片大小计算（图片文件视为第0页）
                         try:
-                            full_text = docling_doc.export_to_text()
-                            if full_text.strip():
-                                text_heading = create_clean_heading(doc, "图片文本内容（OCR识别）", level=3)
-                                doc.add_paragraph(full_text.strip())
-                            else:
-                                logger.info("Docling未从图片中提取到文本内容")
-                        except Exception as export_error:
-                            logger.warning(f"导出图片文本失败: {export_error}")
-                    
-                    # 使用智能图片大小计算（图片文件视为第0页）
-                    try:
-                        image_width, needs_page_break = self._calculate_image_size_for_page(
-                            image_path, 0, True  # 明确传递True，确保单独图片使用5.5英寸
-                        )
-                    except Exception as e:
-                        logger.warning(f"智能大小计算失败: {e}，使用默认方法")
-                        image_width = self._calculate_image_width(0, True)
-                    
-                    # 添加原始图片（居中对齐）
-                    image_heading = create_clean_heading(doc, "原始图片", level=3)
-                    img_para = doc.add_paragraph()
-                    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    img_para.add_run().add_picture(image_path, width=image_width)
-                    
-                    # 只在不是最后一个文件时添加分页符
-                    if not is_last_file:
-                        doc.add_page_break()
-                        logger.debug(f"图片处理完成（Docling），已添加分页符")
+                            image_width, needs_page_break = self._calculate_image_size_for_page(
+                                image_path, 0, True  # 明确传递True，确保单独图片使用5.5英寸
+                            )
+                        except Exception as e:
+                            logger.warning(f"智能大小计算失败: {e}，使用默认方法")
+                            image_width = self._calculate_image_width(0, True)
+                        
+                        # 添加原始图片（居中对齐）
+                        image_heading = create_clean_heading(doc, "原始图片", level=3)
+                        img_para = doc.add_paragraph()
+                        img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        img_para.add_run().add_picture(image_path, width=image_width)
+                        
+                        # 只在不是最后一个文件时添加分页符
+                        if not is_last_file:
+                            doc.add_page_break()
+                            logger.debug(f"图片处理完成（DoclingService），已添加分页符")
+                        else:
+                            logger.debug(f"图片处理完成（DoclingService），跳过分页符（最后一个文件）")
+                        
+                        return {
+                            "success": True,
+                            "message": "图片处理成功（DoclingService增强）",
+                            "text_extracted": bool(text_content.strip())
+                        }
                     else:
-                        logger.debug(f"图片处理完成（Docling），跳过分页符（最后一个文件）")
-                    
-                    return {
-                        "success": True,
-                        "message": "图片处理成功（Docling增强）",
-                        "text_extracted": bool(docling_doc.main_text or docling_doc.export_to_text().strip())
-                    }
-                    
+                        logger.warning(f"DoclingService转换失败: {conv_result.get('error')}")
+                        # 降级到基础处理
+                        pass
+                        
                 except Exception as docling_error:
-                    logger.warning(f"Docling处理图片失败，降级到基础处理: {docling_error}")
+                    logger.warning(f"DoclingService处理图片失败，降级到基础处理: {docling_error}")
                     # 降级到基础处理
                     pass
             
@@ -1210,9 +990,29 @@ class DocumentProcessor:
     @staticmethod
     async def detect_file_type(file_path: str) -> str:
         """检测文件类型"""
-        mime = magic.Magic(mime=True)
-        mime_type = mime.from_file(file_path)
-        return mime_type
+        if MAGIC_AVAILABLE:
+            try:
+                mime = magic.Magic(mime=True)
+                mime_type = mime.from_file(file_path)
+                return mime_type
+            except Exception as e:
+                logger.warning(f"python-magic检测失败，使用文件扩展名: {e}")
+        
+        # 备选方案：根据文件扩展名推断MIME类型
+        ext = file_path.split('.')[-1].lower()
+        mime_mapping = {
+            'pdf': 'application/pdf',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'bmp': 'image/bmp',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'doc': 'application/msword',
+            'txt': 'text/plain'
+        }
+        
+        return mime_mapping.get(ext, f'application/{ext}')
     
     @staticmethod
     async def convert_to_word(file_path: str, filename: str = None) -> Tuple[str, int]:

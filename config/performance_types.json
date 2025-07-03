@@ -1,0 +1,32 @@
+{
+  "performance_types": [
+    {
+      "code": "long_term_consultant",
+      "name": "长期顾问",
+      "description": "长期法律顾问服务",
+      "keywords": [
+        "长期顾问",
+        "常年法律顾问",
+        "法律顾问",
+        "顾问服务"
+      ],
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "code": "major_case",
+      "name": "重大个案",
+      "description": "重大专项法律服务项目",
+      "keywords": [
+        "重大个案",
+        "专项服务",
+        "重大项目",
+        "个案服务"
+      ],
+      "is_active": true,
+      "sort_order": 2
+    }
+  ],
+  "last_updated": "2025-07-02T18:21:57.531059",
+  "version": "1.0"
+}

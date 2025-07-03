@@ -1,14 +1,24 @@
+# 使用Python 3.13 slim版本作为基础镜像
 FROM hub.kingschats.com/python:3.13-slim
 
-# 配置阿里云apt源（递归替换所有apt源文件）
-RUN find /etc/apt/ -type f -exec sed -i 's@deb.debian.org@mirrors.aliyun.com@g' {} + && \
-    find /etc/apt/ -type f -exec sed -i 's@security.debian.org@mirrors.aliyun.com@g' {} +
+# 设置工作目录
+WORKDIR /app
 
-# 配置pip清华源
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 配置国内镜像源加速
+RUN find /etc/apt/ -type f -exec sed -i 's@deb.debian.org@mirrors.aliyun.com@g' {} \; && \
+    find /etc/apt/ -type f -exec sed -i 's@security.debian.org@mirrors.aliyun.com@g' {} \;
+
+# 配置pip镜像源
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
-# 安装系统依赖
+# 安装系统依赖（一次性安装以减少层数）
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-chi-sim \
@@ -20,30 +30,29 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libmagic1 \
-    postgresql-client \
-    libpq-dev \
-    gcc \
-    g++ \
-    python3-dev \
-    build-essential \
-    wget \
+    libmagic-dev \
     curl \
+    wget \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-# 复制依赖文件并安装Python包
+# 复制requirements.txt并安装Python依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY . .
 
-# 创建必要的目录
-RUN mkdir -p uploads screenshots logs
+# 创建必要的目录并设置权限
+RUN mkdir -p uploads screenshots logs generated_docs templates easyocr_models docling_models && \
+    chmod -R 755 uploads screenshots logs generated_docs templates easyocr_models docling_models
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令 - 生产模式，不使用reload避免处理过程中重启
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# 启动命令
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] 

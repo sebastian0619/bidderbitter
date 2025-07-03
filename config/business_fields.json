@@ -1,0 +1,36 @@
+{
+  "business_fields": [
+    {
+      "code": "merger_acquisition",
+      "name": "并购重组",
+      "description": "企业并购、重组、投资等公司法律事务",
+      "keywords": [
+        "并购",
+        "重组",
+        "收购",
+        "合并",
+        "M&A",
+        "投资"
+      ],
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "code": "capital_market",
+      "name": "资本市场",
+      "description": "IPO、债券发行、证券监管等资本市场法律事务",
+      "keywords": [
+        "IPO",
+        "上市",
+        "债券",
+        "证券",
+        "资本市场",
+        "发行"
+      ],
+      "is_active": true,
+      "sort_order": 2
+    }
+  ],
+  "last_updated": "2025-07-02T18:21:57.531856",
+  "version": "1.0"
+}

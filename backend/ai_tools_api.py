@@ -5,14 +5,20 @@ from pydantic import BaseModel
 import json
 import logging
 from datetime import datetime
+import re
 
 from database import get_db
 from ai_tools import tool_manager, WebReader, DatabaseTool
 from ai_service import ai_service
+from config_manager import config_manager
 
 class AIAssistantRequest(BaseModel):
     user_message: str
     context: Optional[Dict[str, Any]] = None
+
+class DocumentClassificationRequest(BaseModel):
+    content: str
+    classification_type: str = "both"  # document_type, business_field, both
 
 router = APIRouter(prefix="/api/ai-tools", tags=["AI工具"])
 
@@ -286,4 +292,175 @@ async def get_tool_status():
         
     except Exception as e:
         logger.error(f"获取工具状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/classify-document")
+async def classify_document_with_ai(
+    request: DocumentClassificationRequest,
+    db: Session = Depends(get_db)
+):
+    """使用AI和动态配置分类文档"""
+    try:
+        results = {}
+        
+        # 1. 文档类型分类
+        if request.classification_type in ["document_type", "both"]:
+            try:
+                system_prompt, user_prompt = config_manager.build_prompt(
+                    "document_classification",
+                    content=request.content
+                )
+                
+                if system_prompt and user_prompt:
+                    # 使用动态配置的prompt进行分类
+                    classification_result = await ai_service.analyze_text(user_prompt)
+                    
+                    if classification_result.get("success"):
+                        # 解析分类结果
+                        try:
+                            classification_content = classification_result.get("raw_content", "")
+                            json_match = re.search(r'\{.*\}', classification_content, re.DOTALL)
+                            if json_match:
+                                import re
+                                classification_data = json.loads(json_match.group())
+                                results["document_type"] = {
+                                    "type": classification_data.get("type", "unknown"),
+                                    "name": classification_data.get("name", ""),
+                                    "confidence": classification_data.get("confidence", 0.0),
+                                    "reason": classification_data.get("reason", ""),
+                                    "method": "dynamic_config_ai"
+                                }
+                            else:
+                                # 回退到关键词分类
+                                keyword_result = config_manager.classify_document_type_by_keywords(request.content)
+                                if keyword_result:
+                                    code, name, score = keyword_result
+                                    results["document_type"] = {
+                                        "type": code,
+                                        "name": name,
+                                        "confidence": score,
+                                        "reason": "基于关键词匹配",
+                                        "method": "keyword_fallback"
+                                    }
+                        except json.JSONDecodeError:
+                            # 回退到关键词分类
+                            keyword_result = config_manager.classify_document_type_by_keywords(request.content)
+                            if keyword_result:
+                                code, name, score = keyword_result
+                                results["document_type"] = {
+                                    "type": code,
+                                    "name": name,
+                                    "confidence": score,
+                                    "reason": "AI解析失败，使用关键词匹配",
+                                    "method": "keyword_fallback"
+                                }
+                else:
+                    # 回退到关键词分类
+                    keyword_result = config_manager.classify_document_type_by_keywords(request.content)
+                    if keyword_result:
+                        code, name, score = keyword_result
+                        results["document_type"] = {
+                            "type": code,
+                            "name": name,
+                            "confidence": score,
+                            "reason": "未配置动态prompt，使用关键词匹配",
+                            "method": "keyword_fallback"
+                        }
+            except Exception as e:
+                logger.error(f"文档类型分类失败: {e}")
+                results["document_type"] = {
+                    "type": "unknown",
+                    "name": "分类失败",
+                    "confidence": 0.0,
+                    "reason": f"分类异常: {str(e)}",
+                    "method": "error"
+                }
+        
+        # 2. 业务领域分类
+        if request.classification_type in ["business_field", "both"]:
+            try:
+                system_prompt, user_prompt = config_manager.build_prompt(
+                    "business_field_classification",
+                    content=request.content
+                )
+                
+                if system_prompt and user_prompt:
+                    # 使用动态配置的prompt进行分类
+                    business_result = await ai_service.analyze_text(user_prompt)
+                    
+                    if business_result.get("success"):
+                        try:
+                            business_content = business_result.get("raw_content", "")
+                            import re
+                            json_match = re.search(r'\{.*\}', business_content, re.DOTALL)
+                            if json_match:
+                                business_data = json.loads(json_match.group())
+                                results["business_field"] = {
+                                    "field": business_data.get("business_field", "unknown"),
+                                    "name": business_data.get("name", "未识别"),
+                                    "confidence": business_data.get("confidence", 0.0),
+                                    "reason": business_data.get("reason", ""),
+                                    "keywords_found": business_data.get("keywords_found", []),
+                                    "method": "dynamic_config_ai"
+                                }
+                            else:
+                                # 回退到关键词分类
+                                keyword_result = config_manager.classify_business_field_by_keywords(request.content)
+                                if keyword_result:
+                                    code, name, score = keyword_result
+                                    results["business_field"] = {
+                                        "field": code,
+                                        "name": name,
+                                        "confidence": score,
+                                        "reason": "AI解析失败，使用关键词匹配",
+                                        "keywords_found": [],
+                                        "method": "keyword_fallback"
+                                    }
+                        except json.JSONDecodeError:
+                            # 回退到关键词分类
+                            keyword_result = config_manager.classify_business_field_by_keywords(request.content)
+                            if keyword_result:
+                                code, name, score = keyword_result
+                                results["business_field"] = {
+                                    "field": code,
+                                    "name": name,
+                                    "confidence": score,
+                                    "reason": "AI JSON解析失败，使用关键词匹配",
+                                    "keywords_found": [],
+                                    "method": "keyword_fallback"
+                                }
+                else:
+                    # 回退到关键词分类
+                    keyword_result = config_manager.classify_business_field_by_keywords(request.content)
+                    if keyword_result:
+                        code, name, score = keyword_result
+                        results["business_field"] = {
+                            "field": code,
+                            "name": name,
+                            "confidence": score,
+                            "reason": "未配置动态prompt，使用关键词匹配",
+                            "keywords_found": [],
+                            "method": "keyword_fallback"
+                        }
+            except Exception as e:
+                logger.error(f"业务领域分类失败: {e}")
+                results["business_field"] = {
+                    "field": "unknown",
+                    "name": "分类失败",
+                    "confidence": 0.0,
+                    "reason": f"分类异常: {str(e)}",
+                    "keywords_found": [],
+                    "method": "error"
+                }
+        
+        return {
+            "success": True,
+            "content_length": len(request.content),
+            "classification_type": request.classification_type,
+            "results": results,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"文档分类失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

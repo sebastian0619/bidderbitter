@@ -85,10 +85,15 @@ class Performance(Base):
     # AI分析结果
     ai_analysis = Column(JSON)  # AI分析的结构化数据
     confidence_score = Column(Float)  # AI识别置信度
+    ai_analysis_status = Column(String(20), default="pending")  # AI分析状态: pending, analyzing, completed, failed
+    extracted_text = Column(Text)  # 提取的文本内容
     
     # 状态信息
     is_verified = Column(Boolean, default=False)  # 是否已验证
     is_manual_input = Column(Boolean, default=False)  # 是否手动录入
+    verification_notes = Column(Text)  # 验证备注
+    verified_at = Column(DateTime)  # 验证时间
+    verification_history = Column(JSON, default=list)  # 验证历史记录
     
     # 时间戳
     created_at = Column(DateTime, default=func.now())
@@ -674,3 +679,14 @@ class FileCategory(Base):
     
     # 自引用关系
     children = relationship("FileCategory", backref="parent", remote_side=[id]) 
+
+class AITask(Base):
+    __tablename__ = "ai_tasks"
+    id = Column(Integer, primary_key=True)
+    file_id = Column(Integer)
+    file_type = Column(String(32))
+    status = Column(String(32), default="pending")
+    result_snapshot = Column(JSON)
+    error_message = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now()) 

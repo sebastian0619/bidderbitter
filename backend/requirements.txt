@@ -46,4 +46,5 @@ python-dotenv
 aiohttp
 asyncio-throttle
 easyocr
-pytz 
+pytz
+fastmcp

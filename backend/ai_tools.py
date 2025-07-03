@@ -12,10 +12,6 @@ from datetime import datetime
 import aiohttp
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from docling.document_converter import DocumentConverter
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -24,7 +20,18 @@ import os
 from database import SessionLocal
 from models import Award, Performance, Project, SearchTask, SearchResult
 
+# 配置日志
 logger = logging.getLogger(__name__)
+
+# 导入统一的DoclingService
+try:
+    from docling_service import docling_service
+    DOCLING_SERVICE_AVAILABLE = True
+    logger.info("DoclingService可用")
+except ImportError as e:
+    DOCLING_SERVICE_AVAILABLE = False
+    logger.warning(f"DoclingService不可用: {e}")
+    docling_service = None
 
 class WebReader:
     """网页读取工具"""
@@ -252,131 +259,12 @@ class DatabaseTool:
         
         return stats
 
-class DocumentProcessor:
-    """文档处理工具，使用Docling"""
-    
-    def __init__(self):
-        """初始化Docling处理器"""
-        try:
-            # 配置PDF处理选项 - 根据Docling文档规范
-            pipeline_options = PdfPipelineOptions(
-                do_ocr=True,
-                do_table_structure=True,
-                generate_page_images=False,
-                generate_picture_images=False,
-                generate_parsed_pages=True,
-                generate_table_images=False,
-                force_backend_text=False
-            )
-            
-            # 配置加速选项
-            pipeline_options.accelerator_options = AcceleratorOptions(
-                num_threads=4, 
-                device=AcceleratorDevice.CPU
-            )
-            
-            # 创建转换器
-            self.converter = DocumentConverter(
-                format_options={
-                    InputFormat.PDF: pipeline_options
-                }
-            )
-            logger.info("Docling转换器创建成功")
-        except Exception as e:
-            logger.error(f"创建Docling转换器失败: {e}")
-            self.converter = None
-
-    async def process_document(self, file_path: str) -> Dict[str, Any]:
-        """使用Docling处理文档"""
-        try:
-            if not os.path.exists(file_path):
-                return {"success": False, "error": f"文件未找到: {file_path}"}
-            
-            if not self.converter:
-                return {"success": False, "error": "Docling转换器未初始化"}
-            
-            # 使用Docling解析文档
-            conv_result = self.converter.convert(file_path)
-            document = conv_result.document
-            
-            # 提取信息
-            title = self._extract_title(document)
-            content = document.export_to_text()
-            tables = self._extract_tables(document)
-            images = self._extract_images(document)
-            metadata = self._extract_metadata(document)
-            
-            return {
-                "success": True,
-                "file_path": file_path,
-                "title": title,
-                "content": content,
-                "tables": tables,
-                "images": images,
-                "metadata": metadata
-            }
-        except Exception as e:
-            logger.error(f"使用Docling处理文档失败 {file_path}: {str(e)}")
-            return {"success": False, "error": str(e)}
-
-    def _extract_title(self, document) -> str:
-        """从文档中提取标题"""
-        try:
-            # 使用Docling的文本导出功能
-            text_content = document.export_to_text()
-            if text_content:
-                lines = text_content.split('\n')
-                for line in lines:
-                    if line.strip():
-                        return line.strip()
-            return "无标题"
-        except Exception as e:
-            logger.error(f"提取标题失败: {e}")
-            return "无标题"
-
-    def _extract_tables(self, document) -> List[Dict[str, Any]]:
-        """从文档中提取表格"""
-        try:
-            # 使用Docling的表格导出功能
-            extracted_tables = []
-            # 这里需要根据实际的Docling API来提取表格
-            # 暂时返回空列表
-            return extracted_tables
-        except Exception as e:
-            logger.error(f"提取表格失败: {e}")
-            return []
-
-    def _extract_images(self, document) -> List[Dict[str, Any]]:
-        """从文档中提取图片"""
-        try:
-            # 使用Docling的图片导出功能
-            extracted_images = []
-            # 这里需要根据实际的Docling API来提取图片
-            # 暂时返回空列表
-            return extracted_images
-        except Exception as e:
-            logger.error(f"提取图片失败: {e}")
-            return []
-
-    def _extract_metadata(self, document) -> Dict[str, Any]:
-        """提取文档元数据"""
-        try:
-            # 使用Docling的元数据导出功能
-            metadata = {}
-            # 这里需要根据实际的Docling API来提取元数据
-            # 暂时返回空字典
-            return metadata
-        except Exception as e:
-            logger.error(f"提取元数据失败: {e}")
-            return {}
-
 class AIToolManager:
     """AI工具管理器"""
     
     def __init__(self):
         self.web_reader = None
         self.db_tool = None
-        self.doc_processor = DocumentProcessor()
     
     async def get_tools(self) -> List[Dict[str, Any]]:
         """获取可用工具列表"""
@@ -434,13 +322,6 @@ class AIToolManager:
                 "name": "get_database_statistics",
                 "description": "获取数据库统计信息",
                 "parameters": {}
-            },
-            {
-                "name": "process_document",
-                "description": "使用Docling处理文档，提取结构化信息",
-                "parameters": {
-                    "file_path": {"type": "string", "description": "文档文件路径"}
-                }
             }
         ]
     
@@ -493,11 +374,6 @@ class AIToolManager:
             elif tool_name == "get_database_statistics":
                 with DatabaseTool() as db:
                     return db.get_statistics()
-            
-            elif tool_name == "process_document":
-                return await self.doc_processor.process_document(
-                    parameters["file_path"]
-                )
             
             else:
                 return {

@@ -7,8 +7,10 @@ import json
 import os
 import logging
 
-from database import get_db
-from models import LawyerCertificate, LawyerCertificateFile, ManagedFile
+from database import get_db, Base
+from models import LawyerCertificate, LawyerCertificateFile, ManagedFile, SystemSettings, AITask
+from schemas import LawyerCertificateResponse, LawyerCertificateCreate, LawyerCertificateUpdate
+from ai_service import create_ai_task, update_ai_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/lawyer-certificates", tags=["律师证管理"])
@@ -434,15 +436,26 @@ async def create_lawyer_certificate_from_file(
                     enable_ocr=True
                 )
                 
-                if ai_result and ai_result.get("final_classification"):
-                    classification = ai_result["final_classification"]
+                if ai_result and ai_result.get("success"):
+                    results = ai_result.get("results", {})
+                    classification = results.get("final_classification", {})
                     confidence_score = classification.get("confidence", 0.0)
                     
                     # 提取律师证信息
-                    if classification.get("category") == "qualification_certificate":
-                        # 尝试从AI结果中提取结构化信息
-                        extracted_info = ai_service._extract_lawyer_certificate_info(ai_result)
-                        logger.info(f"AI提取信息: {extracted_info}")
+                    if classification.get("category") == "lawyer_certificate":
+                        # 从分类结果中提取结构化信息
+                        extracted_info = classification.get("key_entities", {})
+                        logger.info(f"AI提取律师证信息: {extracted_info}")
+                    else:
+                        # 如果AI分类不是律师证，尝试从文本中提取
+                        text_content = results.get("text_extraction_result", {}).get("text", "")
+                        if text_content:
+                            # 检查是否包含律师证关键词
+                            lawyer_keywords = ['执业证', '律师执业', '执业律师', '执业证书', '律师证']
+                            if any(keyword in text_content for keyword in lawyer_keywords):
+                                extracted_info = ai_service._extract_lawyer_entities(text_content)
+                                confidence_score = 0.6  # 基于关键词的置信度
+                                logger.info(f"基于关键词提取律师证信息: {extracted_info}")
                 
                 logger.info(f"AI分析完成，置信度: {confidence_score}")
                 
@@ -550,6 +563,12 @@ async def create_lawyer_certificate_from_file(
         db.add(cert)
         db.flush()  # 获取ID
         
+        # 创建AI分析任务
+        task_id = None
+        if enable_ai_analysis:
+            task_id = create_ai_task(db, cert.id, "lawyer_certificate")
+            logger.info(f"📋 律师证AI任务已创建: 任务ID={task_id}, 律师证ID={cert.id}")
+        
         # 创建文件记录
         cert_file = LawyerCertificateFile(
             certificate_id=cert.id,
@@ -561,6 +580,22 @@ async def create_lawyer_certificate_from_file(
         
         db.add(cert_file)
         db.commit()
+        
+        # 更新AI任务状态为成功（如果AI分析成功）
+        if task_id and ai_result and ai_result.get("success"):
+            update_ai_task(db, task_id, "success", result={
+                "analysis_result": ai_result,
+                "extracted_info": extracted_info,
+                "confidence_score": confidence_score,
+                "final_info": final_info
+            })
+        elif task_id:
+            # AI分析失败或未启用，标记任务完成但无结果
+            update_ai_task(db, task_id, "completed", result={
+                "extracted_info": extracted_info,
+                "confidence_score": confidence_score,
+                "final_info": final_info
+            })
         
         logger.info(f"从文件创建律师证成功: {final_info['lawyer_name']} ({final_info['certificate_number']})")
         
@@ -579,7 +614,8 @@ async def create_lawyer_certificate_from_file(
                 "confidence": confidence_score,
                 "auto_verified": is_verified,
                 "extracted_fields": list(extracted_info.keys()) if extracted_info else []
-            }
+            },
+            "task_id": task_id  # 返回任务ID
         }
         
     except HTTPException:
@@ -816,7 +852,7 @@ async def upload_lawyer_certificate_file(
                         enable_ocr=True
                     )
                 else:
-                    analysis_result = await ai_service.classify_document_with_docling(storage_path)
+                    analysis_result = await ai_service.smart_document_analysis(storage_path)
                 
                 if analysis_result.get("success"):
                     if enable_vision_analysis:
@@ -923,7 +959,7 @@ async def reanalyze_lawyer_certificate(
                     enable_ocr=enable_ocr
                 )
             else:
-                analysis_result = await ai_service.classify_document_with_docling(latest_file.file_path)
+                analysis_result = await ai_service.smart_document_analysis(latest_file.file_path)
             
             if not analysis_result.get("success"):
                 raise HTTPException(status_code=500, detail=f"AI分析失败: {analysis_result.get('error')}")

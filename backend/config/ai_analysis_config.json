@@ -1,0 +1,118 @@
+{
+  "document_classification": {
+    "performance": {
+      "name": "业绩案例",
+      "keywords": ["合同", "协议", "服务", "项目", "法律服务", "顾问", "代理"],
+      "description": "法律服务业绩案例文档"
+    },
+    "lawyer_certificate": {
+      "name": "律师证",
+      "keywords": ["律师执业证", "律师证书", "执业证书", "律师资格", "执业许可"],
+      "description": "律师执业证书文档"
+    },
+    "qualification_certificate": {
+      "name": "资质证照",
+      "keywords": ["执业许可证", "营业执照", "资质证书", "许可证", "证照"],
+      "description": "机构资质证照文档"
+    },
+    "award": {
+      "name": "获奖证书",
+      "keywords": ["奖项", "荣誉", "表彰", "证书", "获奖"],
+      "description": "获奖荣誉证书文档"
+    }
+  },
+  "business_fields": {
+    "bankruptcy_restructuring": {
+      "name": "破产重整",
+      "description": "破产重整、债务重组、企业重整等法律服务",
+      "keywords": ["破产", "重整", "债务重组", "企业重整", "债权申报", "破产清算", "债权人", "债务人", "重整计划", "破产管理人"]
+    },
+    "merger_acquisition": {
+      "name": "并购重组",
+      "description": "企业并购、重组、投资等公司法律事务",
+      "keywords": ["并购", "重组", "收购", "合并", "M&A", "投资", "股权转让", "资产重组"]
+    },
+    "capital_market": {
+      "name": "资本市场",
+      "description": "IPO、债券发行、证券监管等资本市场法律事务",
+      "keywords": ["IPO", "上市", "债券", "证券", "资本市场", "发行", "公开发行", "新三板"]
+    },
+    "banking_finance": {
+      "name": "银行金融",
+      "description": "银行监管、金融产品、支付系统等金融法律事务",
+      "keywords": ["银行", "金融", "监管", "支付", "信贷", "保险", "银团贷款", "融资"]
+    },
+    "intellectual_property": {
+      "name": "知识产权",
+      "description": "专利、商标、版权、商业秘密等知识产权法律事务",
+      "keywords": ["知识产权", "专利", "商标", "版权", "商业秘密", "IP", "侵权"]
+    },
+    "dispute_resolution": {
+      "name": "争议解决",
+      "description": "诉讼、仲裁、调解等争议解决法律事务",
+      "keywords": ["诉讼", "仲裁", "争议", "纠纷", "调解", "法院", "商事争议"]
+    },
+    "compliance_regulation": {
+      "name": "合规监管",
+      "description": "反垄断、数据保护、环境法等合规监管事务",
+      "keywords": ["合规", "监管", "反垄断", "数据保护", "环境法", "反腐败"]
+    },
+    "real_estate": {
+      "name": "房地产",
+      "description": "房地产开发、投资、租赁等房地产法律事务",
+      "keywords": ["房地产", "土地", "开发", "投资", "租赁", "物业"]
+    },
+    "labor_law": {
+      "name": "劳动法",
+      "description": "雇佣关系、劳动纠纷、人力资源等劳动法律事务",
+      "keywords": ["劳动", "雇佣", "人力资源", "社保", "工伤", "劳动争议"]
+    },
+    "tax": {
+      "name": "税务",
+      "description": "税务筹划、税务争议、国际税务等税务法律事务",
+      "keywords": ["税务", "税收", "筹划", "争议", "国际税务", "避税"]
+    },
+    "energy_mining": {
+      "name": "能源矿产",
+      "description": "能源开发、矿产投资、环保等能源矿产法律事务",
+      "keywords": ["能源", "矿产", "环保", "开发", "投资", "资源"]
+    }
+  },
+  "prompts": {
+    "document_classification": {
+      "system": "你是一个专业的法律文档分类专家。请根据文档内容准确分类文档类型。",
+      "user_template": "请分析以下文档内容，判断文档类型：\n\n文档内容：\n{content}\n\n可选的文档类型：\n{document_types}\n\n请返回JSON格式：{{\"category\": \"文档类型代码\", \"confidence\": 置信度(0-1), \"reason\": \"分类理由\"}}"
+    },
+    "business_field_classification": {
+      "system": "你是一个专业的法律业务领域分类专家。请根据法律文档内容准确识别业务领域，特别注意破产重整、债务重组等专业领域。",
+      "user_template": "请分析以下法律文档内容，判断业务领域：\n\n文档内容：\n{content}\n\n可选的业务领域：\n{business_fields}\n\n请返回JSON格式：{{\"business_field\": \"业务领域代码\", \"confidence\": 置信度(0-1), \"reason\": \"分类理由\", \"keywords_found\": [\"找到的关键词列表\"]}}"
+    },
+    "performance_analysis": {
+      "system": "你是一个专业的法律业绩分析专家。请从法律服务文档中提取项目信息，并生成规范化的项目名称和描述。",
+      "user_template": "请分析以下法律服务文档，提取项目信息：\n\n文档内容：\n{content}\n\n项目类型：{project_type}\n业务领域：{business_field}\n\n请返回JSON格式：\n{{\n  \"project_name\": \"规范化项目名称\",\n  \"client_name\": \"客户名称\",\n  \"project_description\": \"项目描述总结\",\n  \"contract_amount\": 合同金额(数字),\n  \"currency\": \"货币代码\",\n  \"year\": 项目年份,\n  \"confidence\": 置信度(0-1)\n}}\n\n项目名称格式要求：\n1. 诉讼仲裁类：代表[客户名称]的[案由]纠纷\n2. 重大个案(非诉)类：代表[客户名称]的[具体项目名称]项目\n3. 常年法律顾问类：[客户名称]常年法律顾问([年份]年度)\n\n请确保项目名称符合对应类型的格式要求。"
+    },
+    "project_name_generation": {
+      "system": "你是一个专业的法律项目名称生成专家。请根据项目类型、客户信息和业务内容生成规范化的项目名称。",
+      "user_template": "请根据以下信息生成规范化的项目名称：\n\n客户名称：{client_name}\n项目类型：{project_type}\n业务领域：{business_field}\n项目内容：{content_summary}\n年份：{year}\n\n生成规则：\n1. 诉讼仲裁类：代表{client_name}的{case_cause}纠纷\n2. 重大个案(非诉)类：代表{client_name}的{project_description}项目\n3. 常年法律顾问类：{client_name}常年法律顾问({year}年度)\n\n请返回JSON格式：{{\"project_name\": \"生成的规范化项目名称\", \"confidence\": 置信度(0-1)}}"
+    },
+    "project_description_generation": {
+      "system": "你是一个专业的法律项目描述生成专家。请基于法律文档内容生成简洁、专业的项目描述。",
+      "user_template": "请基于以下法律文档内容生成项目描述：\n\n文档内容：\n{content}\n\n项目类型：{project_type}\n业务领域：{business_field}\n\n请生成一个简洁、专业的项目描述（100-200字），重点说明：\n1. 服务内容和范围\n2. 关键业务要点\n3. 项目特色或难点\n\n请返回JSON格式：{{\"description\": \"项目描述\", \"key_points\": [\"关键要点列表\"]}}"
+    }
+  },
+  "analysis_settings": {
+    "confidence_threshold": 0.6,
+    "timeout_seconds": 30,
+    "max_content_length": 10000,
+    "enable_fallback": true,
+    "fallback_method": "keyword_matching"
+  },
+  "learning_settings": {
+    "enable_learning": true,
+    "learning_data_file": "ai_learning.json",
+    "max_learning_records": 1000,
+    "learning_confidence_threshold": 0.9
+  },
+  "version": "1.0",
+  "last_updated": "2024-01-01T00:00:00Z"
+} 

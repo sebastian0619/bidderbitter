@@ -1,0 +1,30 @@
+{
+  "performance_types": [
+    {
+      "code": "long_term_consultant",
+      "name": "常年法律顾问",
+      "description": "长期法律顾问服务",
+      "keywords": ["常年法律顾问", "法律顾问", "顾问服务", "长期顾问", "年度顾问"],
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "code": "major_non_litigation",
+      "name": "重大个案(非诉)",
+      "description": "重大非诉讼专项法律服务项目",
+      "keywords": ["重大个案", "专项服务", "重大项目", "个案服务", "非诉", "专项法律服务"],
+      "is_active": true,
+      "sort_order": 2
+    },
+    {
+      "code": "litigation_arbitration",
+      "name": "诉讼仲裁",
+      "description": "诉讼和仲裁法律服务",
+      "keywords": ["诉讼", "仲裁", "争议", "纠纷", "法院", "仲裁庭", "诉讼代理"],
+      "is_active": true,
+      "sort_order": 3
+    }
+  ],
+  "last_updated": "2024-01-01T00:00:00Z",
+  "version": "2.0"
+} 

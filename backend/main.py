@@ -175,6 +175,9 @@ async def startup_event():
         # 初始化高级功能数据
         await init_advanced_data()
         
+        # 启动时下载Docling模型
+        await download_docling_models_on_startup()
+        
         # 注册API路由
         if IMPORT_SUCCESS:
             # 注册项目API路由
@@ -301,6 +304,130 @@ async def init_advanced_data():
         logger.info("高级功能数据初始化完成")
     except Exception as e:
         logger.error(f"高级功能数据初始化失败: {str(e)}")
+
+async def download_docling_models_on_startup():
+    """启动时下载Docling模型"""
+    try:
+        logger.info("🚀 开始启动时下载Docling模型...")
+        
+        # 检查Docling服务是否可用
+        try:
+            from docling_service import docling_service
+            if docling_service and docling_service.is_initialized:
+                logger.info("✅ Docling服务已初始化，模型已就绪")
+                return
+        except ImportError:
+            logger.warning("⚠️ Docling服务不可用，跳过模型下载")
+            return
+        
+        # 设置环境变量以优化下载
+        import os
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        os.environ["HUGGINGFACE_HUB_URL"] = "https://hf-mirror.com"
+        os.environ["HF_HOME"] = "/root/.cache/huggingface"
+        os.environ["TRANSFORMERS_CACHE"] = "/root/.cache/huggingface/transformers"
+        os.environ["HF_HUB_CACHE"] = "/root/.cache/huggingface/hub"
+        
+        # 禁用hf_transfer以避免错误
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+        
+        # 创建缓存目录
+        import subprocess
+        cache_dirs = [
+            "/root/.cache/huggingface",
+            "/root/.cache/huggingface/transformers", 
+            "/root/.cache/huggingface/hub",
+            "/root/.cache/docling/models"
+        ]
+        
+        for cache_dir in cache_dirs:
+            os.makedirs(cache_dir, exist_ok=True)
+        
+        logger.info("📁 缓存目录已创建")
+        
+        # 使用docling-tools下载模型
+        try:
+            logger.info("⬇️ 开始下载Docling模型...")
+            
+            # 下载核心模型
+            cmd = [
+                "docling-tools", "models", "download",
+                "--output-dir", "/root/.cache/docling/models",
+                "--models", "layout,tableformer",
+                "--force"
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5分钟超时
+            )
+            
+            if result.returncode == 0:
+                logger.info("✅ Docling模型下载成功")
+                logger.info(f"📝 下载输出: {result.stdout}")
+            else:
+                logger.warning(f"⚠️ Docling模型下载失败: {result.stderr}")
+                logger.info("🔄 尝试备用下载方法...")
+                
+                # 备用方法：直接初始化DoclingService
+                try:
+                    from docling_service import docling_service
+                    if docling_service:
+                        docling_service._download_models()
+                        logger.info("✅ 备用下载方法成功")
+                except Exception as backup_error:
+                    logger.error(f"❌ 备用下载方法也失败: {backup_error}")
+                    
+        except subprocess.TimeoutExpired:
+            logger.warning("⏰ 模型下载超时，将在后台继续")
+        except Exception as e:
+            logger.error(f"❌ 模型下载过程出错: {e}")
+        
+        # 设置OCR为开启状态
+        try:
+            from database import get_db
+            from models import SystemSettings
+            
+            db = next(get_db())
+            
+            # 检查是否已有OCR设置
+            ocr_setting = db.query(SystemSettings).filter(
+                SystemSettings.setting_key == "docling_enable_ocr"
+            ).first()
+            
+            if ocr_setting:
+                ocr_setting.setting_value = "true"
+                logger.info("🔧 已更新OCR设置为开启状态")
+            else:
+                # 创建新的OCR设置
+                new_setting = SystemSettings(
+                    setting_key="docling_enable_ocr",
+                    setting_value="true",
+                    setting_type="boolean",
+                    category="ocr",
+                    description="是否启用Docling OCR功能"
+                )
+                db.add(new_setting)
+                logger.info("🔧 已创建OCR设置为开启状态")
+            
+            db.commit()
+            logger.info("✅ OCR功能已设置为开启状态")
+            
+        except Exception as e:
+            logger.error(f"❌ 设置OCR状态失败: {e}")
+        finally:
+            try:
+                if 'db' in locals():
+                    db.close()
+            except:
+                pass
+        
+        logger.info("🎉 Docling模型启动下载完成")
+        
+    except Exception as e:
+        logger.error(f"❌ Docling模型启动下载失败: {e}")
 
 # ==================== 文件上传和处理 ====================
 
@@ -977,6 +1104,81 @@ async def init_default_settings(db: Session = Depends(get_db)):
                 "value": "",
                 "category": "ocr",
                 "description": "EasyOCR模型下载代理"
+            },
+            # AI分析高级设置
+            {
+                "key": "ai_analysis_enable_table_structure",
+                "value": "false",
+                "category": "ai_analysis",
+                "description": "AI分析时是否启用表格结构分析"
+            },
+            {
+                "key": "ai_analysis_enable_picture_classification",
+                "value": "false",
+                "category": "ai_analysis",
+                "description": "AI分析时是否启用图片分类"
+            },
+            {
+                "key": "ai_analysis_enable_picture_description",
+                "value": "false",
+                "category": "ai_analysis",
+                "description": "AI分析时是否启用图片描述"
+            },
+            {
+                "key": "ai_analysis_generate_page_images",
+                "value": "false",
+                "category": "ai_analysis",
+                "description": "AI分析时是否生成页面图片"
+            },
+            {
+                "key": "ai_analysis_generate_picture_images",
+                "value": "false",
+                "category": "ai_analysis",
+                "description": "AI分析时是否生成图片文件"
+            },
+            # OCR精度优化设置
+            {
+                "key": "docling_confidence_threshold",
+                "value": "0.5",
+                "category": "ocr",
+                "description": "OCR识别置信度阈值 (0.1-1.0)"
+            },
+            {
+                "key": "docling_bitmap_area_threshold",
+                "value": "0.05",
+                "category": "ocr",
+                "description": "OCR位图区域阈值 (0.01-0.1)"
+            },
+            {
+                "key": "docling_force_full_page_ocr",
+                "value": "false",
+                "category": "ocr",
+                "description": "是否强制全页OCR (可能提高漏行检测)"
+            },
+            {
+                "key": "docling_recog_network",
+                "value": "standard",
+                "category": "ocr",
+                "description": "OCR识别网络类型 (standard/fast)"
+            },
+            {
+                "key": "docling_use_gpu",
+                "value": "false",
+                "category": "ocr",
+                "description": "OCR是否使用GPU加速"
+            },
+            {
+                "key": "docling_images_scale",
+                "value": "2.0",
+                "category": "ocr",
+                "description": "OCR图像缩放比例 (1.0-3.0)"
+            },
+            # 图片描述配置
+            {
+                "key": "picture_description_prompt",
+                "value": "请详细描述这张图片的内容，包括文字、图表、结构等信息。",
+                "category": "ai_analysis",
+                "description": "Docling图片描述的提示词"
             }
         ]
         
@@ -1899,12 +2101,16 @@ except ImportError:
 async def get_docling_ocr_status():
     """获取Docling OCR状态"""
     try:
+        # 使用DoclingService获取状态
+        from docling_service import docling_service as ds
+        status = ds.get_status()
+        
         return {
             "success": True,
-            "docling_available": DOCLING_AVAILABLE,
-            "ocr_enabled": ai_service.enable_docling_ocr,
-            "converter_initialized": ai_service.docling_converter is not None,
-            "languages": ai_service.docling_ocr_languages
+            "docling_available": status.get("docling_available", False),
+            "ocr_enabled": status.get("config", {}).get("enable_ocr", False),
+            "converter_initialized": status.get("initialized", False),
+            "languages": status.get("config", {}).get("ocr_languages", [])
         }
     except Exception as e:
         logger.error(f"获取Docling OCR状态失败: {str(e)}")
@@ -1953,16 +2159,20 @@ async def get_easyocr_status():
     """获取EasyOCR模型状态"""
     try:
         import os
-        model_path = ai_service.easyocr_model_path
+        # 使用DoclingService获取模型路径
+        from docling_service import docling_service as ds
+        status = ds.get_status()
+        model_path = status.get("config", {}).get("easyocr_models_path", "")
         
         # 检查模型文件是否存在
         model_files = ['craft_mlt_25k.pth', 'zh_sim_g2.pth', 'english_g2.pth']
         existing_models = []
         
-        for model_file in model_files:
-            file_path = os.path.join(model_path, model_file)
-            if os.path.exists(file_path):
-                existing_models.append(model_file)
+        if model_path and os.path.exists(model_path):
+            for model_file in model_files:
+                file_path = os.path.join(model_path, model_file)
+                if os.path.exists(file_path):
+                    existing_models.append(model_file)
         
         is_initialized = len(existing_models) >= 2  # 至少需要2个主要模型文件
         
@@ -1972,7 +2182,7 @@ async def get_easyocr_status():
             "model_path": model_path,
             "existing_models": existing_models,
             "total_models": len(model_files),
-            "languages": ai_service.easyocr_languages
+            "languages": status.get("config", {}).get("ocr_languages", [])
         }
     except Exception as e:
         logger.error(f"获取EasyOCR状态失败: {str(e)}")
@@ -2000,6 +2210,8 @@ async def trigger_ai_models_download():
         logger.error(f"启动AI模型下载失败: {e}")
         return {"success": False, "error": str(e)}
 
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

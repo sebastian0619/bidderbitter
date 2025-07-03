@@ -1,0 +1,94 @@
+{
+  "business_fields": [
+    {
+      "code": "bankruptcy_restructuring",
+      "name": "破产重整",
+      "description": "破产重整、债务重组、企业重整等法律服务",
+      "keywords": ["破产", "重整", "债务重组", "企业重整", "债权申报", "破产清算", "债权人", "债务人", "重整计划", "破产管理人"],
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "code": "merger_acquisition",
+      "name": "并购重组",
+      "description": "企业并购、重组、投资等公司法律事务",
+      "keywords": ["并购", "重组", "收购", "合并", "M&A", "投资"],
+      "is_active": true,
+      "sort_order": 2
+    },
+    {
+      "code": "capital_market",
+      "name": "资本市场",
+      "description": "IPO、债券发行、证券监管等资本市场法律事务",
+      "keywords": ["IPO", "上市", "债券", "证券", "资本市场", "发行"],
+      "is_active": true,
+      "sort_order": 3
+    },
+    {
+      "code": "banking_finance",
+      "name": "银行金融",
+      "description": "银行监管、金融产品、支付系统等金融法律事务",
+      "keywords": ["银行", "金融", "监管", "支付", "信贷", "保险"],
+      "is_active": true,
+      "sort_order": 4
+    },
+    {
+      "code": "intellectual_property",
+      "name": "知识产权",
+      "description": "专利、商标、版权、商业秘密等知识产权法律事务",
+      "keywords": ["知识产权", "专利", "商标", "版权", "商业秘密", "IP"],
+      "is_active": true,
+      "sort_order": 5
+    },
+    {
+      "code": "dispute_resolution",
+      "name": "争议解决",
+      "description": "诉讼、仲裁、调解等争议解决法律事务",
+      "keywords": ["诉讼", "仲裁", "争议", "纠纷", "调解", "法院"],
+      "is_active": true,
+      "sort_order": 6
+    },
+    {
+      "code": "compliance_regulation",
+      "name": "合规监管",
+      "description": "反垄断、数据保护、环境法等合规监管事务",
+      "keywords": ["合规", "监管", "反垄断", "数据保护", "环境法", "合规"],
+      "is_active": true,
+      "sort_order": 7
+    },
+    {
+      "code": "real_estate",
+      "name": "房地产",
+      "description": "房地产开发、投资、租赁等房地产法律事务",
+      "keywords": ["房地产", "土地", "开发", "投资", "租赁", "物业"],
+      "is_active": true,
+      "sort_order": 8
+    },
+    {
+      "code": "labor_law",
+      "name": "劳动法",
+      "description": "雇佣关系、劳动纠纷、人力资源等劳动法律事务",
+      "keywords": ["劳动", "雇佣", "人力资源", "社保", "工伤", "劳动争议"],
+      "is_active": true,
+      "sort_order": 9
+    },
+    {
+      "code": "tax",
+      "name": "税务",
+      "description": "税务筹划、税务争议、国际税务等税务法律事务",
+      "keywords": ["税务", "税收", "筹划", "争议", "国际税务", "避税"],
+      "is_active": true,
+      "sort_order": 10
+    },
+    {
+      "code": "energy_mining",
+      "name": "能源矿产",
+      "description": "能源开发、矿产投资、环保等能源矿产法律事务",
+      "keywords": ["能源", "矿产", "环保", "开发", "投资", "资源"],
+      "is_active": true,
+      "sort_order": 11
+    }
+  ],
+  "last_updated": "2024-01-01T00:00:00Z",
+  "version": "1.0"
+} 

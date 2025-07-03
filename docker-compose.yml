@@ -23,7 +23,8 @@ services:
     build: 
       context: ./backend
       dockerfile: Dockerfile
-
+    ports:
+      - "8000:8000"
     depends_on:
       - postgres
       - redis
@@ -104,13 +105,21 @@ services:
       # 系统名称配置
       - APP_NAME=${APP_NAME:-投标苦}
       
+      # HuggingFace镜像配置
+      - HF_ENDPOINT=https://hf-mirror.com
+      - HUGGINGFACE_HUB_URL=https://hf-mirror.com
+      - HF_HOME=/root/.cache/huggingface
+      - HF_HUB_CACHE=/root/.cache/huggingface/hub
+      - HTTP_PROXY=http://kingscross.online:6785
+      
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
       - ./screenshots:/app/screenshots
       - ./generated_docs:/app/generated_docs
       - ./templates:/app/templates
-      - ./easyocr_models:/easyocr_models  # EasyOCR模型持久化存储
+      - ./easyocr_models:/app/easyocr_models  # EasyOCR模型持久化存储
+      - ./docling_models:/app/docling_models  # Docling模型持久化存储
     networks:
       - bidder_network
 

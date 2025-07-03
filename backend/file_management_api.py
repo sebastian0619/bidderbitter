@@ -15,9 +15,10 @@ import mimetypes
 import pytz
 
 from database import get_db
-from models import ManagedFile, FileVersion, FileUsage, FileCategory, LawyerCertificate, LawyerCertificateFile
+from models import ManagedFile, FileVersion, FileUsage, FileCategory, LawyerCertificate, LawyerCertificateFile, SystemSettings, AITask
 from schemas import *
 import logging
+from ai_service import create_ai_task, update_ai_task
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -308,7 +309,7 @@ async def upload_permanent_file(
                         enable_vision=True
                     )
                 else:
-                    analysis_result = await ai_service.classify_document_with_docling(storage_path)
+                    analysis_result = await ai_service.smart_document_analysis(storage_path)
                 
                 if analysis_result.get("success"):
                     if enable_vision_analysis:
@@ -362,6 +363,28 @@ async def upload_permanent_file(
         db.commit()
         db.refresh(db_file)
         
+        # 创建AI分析任务
+        task_id = None
+        if enable_ai_classification:
+            task_id = create_ai_task(db, db_file.id, "permanent_file")
+            logger.info(f"📋 常驻文件AI任务已创建: 任务ID={task_id}, 文件ID={db_file.id}")
+            
+            # 更新AI任务状态为成功（如果AI分析成功）
+            if ai_classification:
+                update_ai_task(db, task_id, "success", result={
+                    "ai_classification": ai_classification,
+                    "final_category": final_category,
+                    "final_tags": final_tags,
+                    "analysis_enabled": True
+                })
+            else:
+                # AI分析失败或无结果
+                update_ai_task(db, task_id, "completed", result={
+                    "final_category": final_category,
+                    "final_tags": final_tags,
+                    "analysis_enabled": False
+                })
+        
         logger.info(f"常驻文件上传成功: {display_name} -> {storage_path}")
         
         return {
@@ -372,7 +395,8 @@ async def upload_permanent_file(
             "file_size": db_file.file_size,
             "category": final_category,
             "tags": final_tags,
-            "ai_classification": ai_classification if enable_ai_classification else None
+            "ai_classification": ai_classification if enable_ai_classification else None,
+            "task_id": task_id  # 返回任务ID
         }
         
     except HTTPException:
@@ -744,6 +768,35 @@ async def update_file_info(
             "keywords": file.keywords
         }
         
+        # AI学习机制：当用户修改分类时，记录学习数据
+        if category and category != old_info["category"]:
+            try:
+                from ai_service import ai_service
+                
+                # 记录用户的修正行为供AI学习
+                learning_data = {
+                    "file_path": file.storage_path,
+                    "original_classification": old_info["category"],
+                    "user_correction": category,
+                    "file_type": file.file_type,
+                    "file_size": file.file_size,
+                    "correction_reason": "user_manual_edit",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # 如果是从"律师证"修正为"资质证照"，记录详细原因
+                if old_info["category"] == "lawyer_certificate" and category == "qualification_certificate":
+                    learning_data["specific_correction"] = "law_firm_license_vs_personal_certificate"
+                    learning_data["learning_note"] = "律师事务所执业许可证应归类为资质证照，而非个人律师证"
+                
+                # 保存学习数据到配置管理器
+                ai_service.record_user_correction(learning_data)
+                
+                logger.info(f"AI学习记录: 用户将 {old_info['category']} 修正为 {category}")
+                
+            except Exception as learn_err:
+                logger.warning(f"AI学习记录失败，但不影响更新: {learn_err}")
+        
         # 更新字段
         if display_name is not None:
             file.display_name = display_name
@@ -920,7 +973,7 @@ async def analyze_document_ai(
                 enable_vision=True
             )
         else:
-            analysis_result = await ai_service.classify_document_with_docling(file_record.storage_path)
+            analysis_result = await ai_service.smart_document_analysis(file_record.storage_path)
         
         if not analysis_result.get("success"):
             raise HTTPException(status_code=500, detail=f"AI分析失败: {analysis_result.get('error')}")
@@ -951,13 +1004,18 @@ async def analyze_document_ai(
         
         # 如果需要，更新文件记录
         if force_reanalyze and classification:
-            file_record.category = classification.get("category", file_record.category)
+            # 修复分类字段访问 - 使用type而不是category
+            new_category = classification.get("type", file_record.category)
+            if new_category:
+                file_record.category = new_category
+                logger.info(f"更新文件分类: {file_record.id} -> {new_category}")
+            
             if tag_result.get("success"):
                 file_record.tags = tag_result.get("all_tags", file_record.tags)
             
             # 更新描述信息
-            if classification.get("description") and not file_record.description:
-                file_record.description = classification["description"]
+            if classification.get("summary") and not file_record.description:
+                file_record.description = classification["summary"]
             
             # 更新处理结果
             if not file_record.processing_result:
@@ -966,6 +1024,7 @@ async def analyze_document_ai(
             file_record.processing_result["classification"] = classification
             
             db.commit()
+            logger.info(f"文件记录已更新: 分类={new_category}, 标签={file_record.tags}")
         
         return {
             "success": True,

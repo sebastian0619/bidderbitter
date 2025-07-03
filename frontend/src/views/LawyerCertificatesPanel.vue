@@ -653,7 +653,7 @@ const reanalyzing = ref(false)
 const reanalyzeOptions = reactive({
   enable_vision_analysis: true,
   enable_ocr: true,
-  update_fields: false
+  update_fields: true
 })
 
 // 创建时上传相关
@@ -1093,7 +1093,7 @@ const closeReanalyzeDialog = () => {
   // 重置分析选项
   reanalyzeOptions.enable_vision_analysis = true
   reanalyzeOptions.enable_ocr = true
-  reanalyzeOptions.update_fields = false
+  reanalyzeOptions.update_fields = true  // 默认启用字段更新
 }
 
 // 创建时文件上传相关方法

@@ -1,0 +1,1543 @@
+import os
+import json
+import logging
+from typing import Dict, List, Optional, Any
+import aiohttp
+import asyncio
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Docling相关导入
+try:
+    from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption, ImageFormatOption
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions, PipelineOptions, EasyOcrOptions
+    from docling.datamodel.accelerator_options import AcceleratorOptions
+    DOCLING_AVAILABLE = True
+    logger.info("Docling模块可用")
+except ImportError as e:
+    DOCLING_AVAILABLE = False
+    logger.warning(f"Docling模块不可用: {e}")
+
+# 检查EasyOCR是否可用
+try:
+    import easyocr
+    EASYOCR_AVAILABLE = True
+    logger.info("EasyOCR模块可用")
+except ImportError as e:
+    EASYOCR_AVAILABLE = False
+    logger.warning(f"EasyOCR模块不可用: {e}")
+
+class AIService:
+    """AI服务类，提供各种AI能力"""
+    
+    def __init__(self):
+        self.ai_provider = os.getenv("AI_PROVIDER", "openai").lower()
+        self.enable_ai = os.getenv("ENABLE_AI", "true").lower() == "true"
+        
+        # AI服务配置
+        self.ai_api_key = self._get_ai_api_key()
+        self.ai_base_url = self._get_ai_base_url()
+        self.ai_model = self._get_ai_model()
+        self.ai_vision_model = self._get_ai_vision_model()
+        
+        # EasyOCR配置（为了兼容性）
+        self.easyocr_enable = True
+        self.easyocr_model_path = os.path.join(os.path.dirname(__file__), '..', 'easyocr_models')
+        self.easyocr_model_path = os.path.abspath(self.easyocr_model_path)
+        os.makedirs(self.easyocr_model_path, exist_ok=True)
+        self.easyocr_download_proxy = ""
+        self.easyocr_languages = ["ch_sim", "en"]
+        self.easyocr_use_gpu = False
+        self.easyocr_reader = None
+        
+        # Docling OCR配置
+        self.enable_docling_ocr = True
+        self.docling_enable_ocr = True
+        self.docling_use_gpu = False
+        self.docling_ocr_languages = ["ch_sim", "en"]
+        
+        # 业务领域配置
+        self.business_fields = self._load_business_fields()
+        
+        # 初始化Docling转换器
+        self.docling_converter = None
+        self._init_docling_converter()
+        
+        logger.info("AI服务初始化完成")
+    
+    def _get_setting_value(self, key: str, default: str = "") -> str:
+        """从数据库获取设置值，如果不存在则返回环境变量或默认值"""
+        try:
+            from database import get_db
+            from models import SystemSettings
+            
+            db = next(get_db())
+            setting = db.query(SystemSettings).filter(
+                SystemSettings.setting_key == key
+            ).first()
+            
+            if setting and setting.setting_value:
+                return setting.setting_value
+            
+            return os.getenv(key.upper(), default)
+            
+        except Exception as e:
+            logger.warning(f"无法从数据库获取设置 {key}: {str(e)}")
+            return os.getenv(key.upper(), default)
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
+    def _load_business_fields(self) -> list:
+        """从数据库加载业务领域列表"""
+        try:
+            from database import get_db
+            from models import BusinessField
+            
+            db = next(get_db())
+            fields = db.query(BusinessField).filter(BusinessField.is_active == True).all()
+            business_fields = [field.name for field in fields]
+            
+            # 如果数据库中没有业务领域，使用默认值
+            if not business_fields:
+                business_fields = [
+                    "公司并购", "资本市场", "银行金融", "知识产权", "争议解决", 
+                    "合规监管", "房地产", "劳动法", "税务", "能源矿产"
+                ]
+                logger.info("使用默认业务领域列表")
+            else:
+                logger.info(f"从数据库加载了 {len(business_fields)} 个业务领域")
+            
+            return business_fields
+            
+        except Exception as e:
+            logger.warning(f"加载业务领域失败，使用默认值: {str(e)}")
+            return [
+                "公司并购", "资本市场", "银行金融", "知识产权", "争议解决", 
+                "合规监管", "房地产", "劳动法", "税务", "能源矿产"
+            ]
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
+    def reload_config(self):
+        """重新加载配置"""
+        try:
+            logger.info("重新加载AI服务配置...")
+            
+            # 重新读取设置
+            self.ai_provider = self._get_setting_value("ai_provider", "openai").lower()
+            self.enable_ai = self._get_setting_value("enable_ai", "true").lower() == "true"
+            self.enable_docling_ocr = self._get_setting_value("docling_enable_ocr", "true").lower() == "true"
+            self.docling_enable_ocr = self.enable_docling_ocr
+            self.docling_use_gpu = self._get_setting_value("docling_use_gpu", "false").lower() == "true"
+            
+            # 重新加载业务领域
+            self.business_fields = self._load_business_fields()
+            
+            # 重新初始化Docling转换器
+            self._init_docling_converter()
+                
+            logger.info(f"AI服务配置重载完成，当前提供商: {self.ai_provider}")
+            
+        except Exception as e:
+            logger.error(f"重新加载AI配置失败: {str(e)}")
+    
+    def _init_docling_converter(self):
+        """初始化Docling转换器 - 根据官方文档的正确方式"""
+        if not DOCLING_AVAILABLE:
+            logger.warning("Docling不可用，跳过初始化")
+            return
+            
+        try:
+            # 设置模型存储路径 - 使用项目统一路径
+            artifacts_path = os.path.join(os.path.dirname(__file__), '..', 'docling_models')
+            artifacts_path = os.path.abspath(artifacts_path)
+            
+            # 设置EasyOCR模型目录
+            easyocr_model_path = os.path.join(os.path.dirname(__file__), '..', 'easyocr_models')
+            easyocr_model_path = os.path.abspath(easyocr_model_path)
+            
+            # 确保模型目录存在
+            os.makedirs(artifacts_path, exist_ok=True)
+            os.makedirs(easyocr_model_path, exist_ok=True)
+            
+            # 预下载Docling模型 - 使用官方推荐方式
+            try:
+                from docling.document_converter import StandardPdfPipeline
+                from pathlib import Path
+                
+                logger.info("开始预下载Docling模型...")
+                model_path = StandardPdfPipeline.download_models_hf(
+                    local_dir=Path(artifacts_path), 
+                    force=False
+                )
+                logger.info(f"Docling模型下载完成: {model_path}")
+                
+            except Exception as model_dl_error:
+                logger.warning(f"Docling模型预下载失败，将在运行时下载: {model_dl_error}")
+            
+            # 配置EasyOCR选项 - 完整配置
+            ocr_options = EasyOcrOptions(
+                lang=['ch_sim', 'en'],  # 中文简体和英文
+                force_full_page_ocr=False,
+                bitmap_area_threshold=float(self._get_setting_value("docling_bitmap_area_threshold", "0.05")),
+                use_gpu=self.docling_use_gpu,
+                confidence_threshold=float(self._get_setting_value("docling_confidence_threshold", "0.5")),
+                model_storage_directory=easyocr_model_path,
+                download_enabled=True
+            )
+            
+            # 完整的PDF处理配置 - 使用artifacts_path
+            self.docling_pipeline_options = PdfPipelineOptions(
+                artifacts_path=artifacts_path,  # 关键：指定模型路径
+                do_ocr=self.docling_enable_ocr,
+                do_table_structure=False,  # 禁用表格识别以避免复杂依赖
+                do_picture_classification=False,  # 禁用图片分类
+                do_picture_description=False,  # 禁用图片描述
+                ocr_options=ocr_options,
+                images_scale=2.0,  # 提高图像质量
+                generate_page_images=False,
+                generate_picture_images=False,
+                generate_parsed_pages=True,
+                generate_table_images=False,
+                enable_remote_services=False  # 确保完全离线
+            )
+            
+            # 配置图片处理选项
+            self.docling_image_options = PipelineOptions()
+            
+            # 创建转换器 - 使用正确的FormatOption对象
+            from docling.document_converter import PdfFormatOption, WordFormatOption, ImageFormatOption
+            
+            self.docling_converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(
+                        pipeline_options=self.docling_pipeline_options
+                    ),
+                    InputFormat.DOCX: WordFormatOption(),
+                    InputFormat.PPTX: WordFormatOption(),
+                    InputFormat.HTML: WordFormatOption(),
+                    InputFormat.MD: WordFormatOption(),
+                    InputFormat.IMAGE: ImageFormatOption(
+                        pipeline_options=self.docling_image_options
+                    ),
+                }
+            )
+            
+            logger.info("Docling转换器初始化成功（完整OCR模式）")
+            logger.info(f"模型存储路径: {artifacts_path}")
+            logger.info(f"EasyOCR模型目录: {easyocr_model_path}")
+            logger.info(f"OCR设置: 启用={self.docling_enable_ocr}, GPU={self.docling_use_gpu}")
+            logger.info(f"OCR语言: {ocr_options.lang}")
+            logger.info("AI分析将使用外部AI服务，Docling专注OCR功能")
+            
+        except Exception as e:
+            logger.error(f"Docling转换器初始化失败: {str(e)}")
+            import traceback
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            
+            # 尝试诊断具体问题
+            try:
+                logger.info("尝试诊断Docling配置问题...")
+                
+                # 检查Docling版本和依赖
+                import docling
+                logger.info(f"Docling版本: {getattr(docling, '__version__', 'unknown')}")
+                
+                # 检查模型路径
+                logger.info(f"模型路径是否存在: {os.path.exists(artifacts_path)}")
+                logger.info(f"EasyOCR路径是否存在: {os.path.exists(easyocr_model_path)}")
+                
+            except Exception as diag_e:
+                logger.error(f"诊断失败: {diag_e}")
+            
+            # 设置为None，让系统知道Docling不可用
+            self.docling_converter = None
+            logger.warning("Docling初始化失败，AI分析将跳过OCR功能")
+    
+    def get_ai_models_status(self) -> Dict[str, Any]:
+        """获取AI服务状态 - 专注于用户配置的AI服务"""
+        try:
+            return {
+                "ai_service_configured": bool(self.ai_api_key),
+                "ai_provider": self.ai_provider,
+                "ai_model": self.ai_model,
+                "ai_vision_model": self.ai_vision_model,
+                "ai_base_url": self.ai_base_url,
+                "docling_available": self.docling_converter is not None,
+                "features": {
+                    "ocr": self.docling_enable_ocr and self.docling_converter is not None,
+                    "text_analysis": bool(self.ai_api_key),
+                    "vision_analysis": bool(self.ai_api_key),
+                    "document_classification": bool(self.ai_api_key)
+                }
+            }
+        except Exception as e:
+            logger.error(f"获取AI服务状态失败: {e}")
+            return {
+                "ai_service_configured": False,
+                "docling_available": False,
+                "error": str(e)
+            }
+
+    async def download_easyocr_models(self, progress_callback=None):
+        """下载所有必需的模型（Docling + EasyOCR）"""
+        try:
+            results = {
+                "docling_models": {"success": False},
+                "easyocr_models": {"success": False}
+            }
+            
+            if progress_callback:
+                progress_callback({"status": "starting", "progress": 0, "message": "开始下载模型..."})
+            
+            # 1. 下载Docling模型 - 使用官方方法
+            try:
+                from docling.document_converter import StandardPdfPipeline
+                from pathlib import Path
+                
+                artifacts_path = os.path.join(os.path.dirname(__file__), '..', 'docling_models')
+                artifacts_path = os.path.abspath(artifacts_path)
+                os.makedirs(artifacts_path, exist_ok=True)
+                
+                if progress_callback:
+                    progress_callback({"status": "downloading", "progress": 20, "message": "下载Docling模型..."})
+                
+                logger.info("使用StandardPdfPipeline下载Docling模型...")
+                model_path = StandardPdfPipeline.download_models_hf(
+                    local_dir=Path(artifacts_path),
+                    force=False  # 不强制重新下载
+                )
+                
+                                results["docling_models"] = {
+                    "success": True,
+                    "path": str(model_path),
+                    "message": "Docling模型下载成功"
+                }
+                logger.info(f"Docling模型下载成功: {model_path}")
+                
+            except Exception as e:
+                logger.error(f"Docling模型下载失败: {e}")
+                results["docling_models"] = {
+                    "success": False,
+                    "error": str(e),
+                    "message": "Docling模型下载失败，将在运行时自动下载"
+                }
+            
+            if progress_callback:
+                progress_callback({"status": "downloading", "progress": 50, "message": "下载EasyOCR模型..."})
+            
+            # 2. 下载EasyOCR模型
+            try:
+                easyocr_model_path = os.path.join(os.path.dirname(__file__), '..', 'easyocr_models')
+                easyocr_model_path = os.path.abspath(easyocr_model_path)
+                os.makedirs(easyocr_model_path, exist_ok=True)
+                
+                # 设置代理（如果有的话）
+                easyocr_proxy = self._get_setting_value("easyocr_download_proxy", "")
+                if easyocr_proxy:
+                    os.environ['http_proxy'] = easyocr_proxy
+                    os.environ['https_proxy'] = easyocr_proxy
+                    logger.info(f"设置EasyOCR下载代理: {easyocr_proxy}")
+                
+                if progress_callback:
+                    progress_callback({"status": "downloading", "progress": 70, "message": "创建EasyOCR实例..."})
+                
+                # 直接使用EasyOCR下载模型
+                import easyocr
+                logger.info("创建EasyOCR Reader以触发模型下载...")
+                
+                reader = easyocr.Reader(
+                    ['ch_sim', 'en'],
+                    gpu=self.docling_use_gpu,
+                    model_storage_directory=easyocr_model_path,
+                    download_enabled=True,
+                    verbose=True
+                )
+                
+                # 验证模型文件
+                model_files = ['craft_mlt_25k.pth', 'zh_sim_g2.pth', 'english_g2.pth']
+                downloaded_files = []
+                
+                for model_file in model_files:
+                    file_path = os.path.join(easyocr_model_path, model_file)
+                    if os.path.exists(file_path):
+                        downloaded_files.append(model_file)
+                        logger.info(f"EasyOCR模型文件验证成功: {model_file}")
+                
+                if downloaded_files:
+                    results["easyocr_models"] = {
+                        "success": True,
+                        "path": easyocr_model_path,
+                        "downloaded_files": downloaded_files,
+                        "message": f"EasyOCR模型下载成功，已下载 {len(downloaded_files)} 个文件"
+                    }
+                    logger.info(f"EasyOCR模型下载成功: {downloaded_files}")
+                else:
+                    results["easyocr_models"] = {
+                        "success": False,
+                        "message": "EasyOCR模型下载完成，但未找到预期的模型文件"
+                    }
+                
+                # 清除代理环境变量
+                if easyocr_proxy:
+                    os.environ.pop('http_proxy', None)
+                    os.environ.pop('https_proxy', None)
+            
+        except Exception as e:
+                logger.error(f"EasyOCR模型下载失败: {e}")
+                results["easyocr_models"] = {
+                    "success": False,
+                    "error": str(e),
+                    "message": "EasyOCR模型下载失败"
+                }
+                
+                # 清除代理环境变量
+                easyocr_proxy = self._get_setting_value("easyocr_download_proxy", "")
+                if easyocr_proxy:
+                    os.environ.pop('http_proxy', None)
+                    os.environ.pop('https_proxy', None)
+            
+            if progress_callback:
+                progress_callback({"status": "completed", "progress": 100, "message": "模型下载完成"})
+            
+            # 总结结果
+            overall_success = results["docling_models"]["success"] or results["easyocr_models"]["success"]
+            
+            return {
+                "success": overall_success,
+                "details": results,
+                "message": "模型下载完成" if overall_success else "模型下载失败",
+                "docling_path": results["docling_models"].get("path"),
+                "easyocr_path": results["easyocr_models"].get("path")
+            }
+            
+        except Exception as e:
+            logger.error(f"模型下载过程失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "模型下载过程失败"
+            }
+
+    async def smart_document_analysis(self, file_path: str, enable_vision: bool = True, enable_ocr: bool = True) -> Dict[str, Any]:
+        """智能文档分析 - 整合了文本提取、OCR、视觉分析和分类功能"""
+        try:
+            # 1. 使用Docling进行OCR文本提取（仅用于OCR，不用于分类）
+            text_content = ""
+            if enable_ocr and self.docling_converter:
+                try:
+                    if not os.path.exists(file_path):
+                        return {
+                            "success": False,
+                            "error": "文件不存在"
+                        }
+                    
+                    # 使用Docling转换文档（仅用于OCR）
+                    result = self.docling_converter.convert(file_path)
+                    text_content = result.document.export_to_markdown()
+                    logger.info(f"Docling OCR提取文本: {len(text_content)} 字符")
+                    
+                except Exception as e:
+                    logger.warning(f"Docling OCR失败，使用空文本: {e}")
+                    text_content = ""
+            
+            # 2. AI视觉分析（如果启用并且是图片文件）
+            vision_analysis = None
+            if enable_vision and self.enable_ai and self.ai_api_key:
+                file_ext = os.path.splitext(file_path)[1].lower()
+                if file_ext in ['.jpg', '.jpeg', '.png', '.pdf']:
+                    try:
+                        vision_prompt = """
+请分析这个法律相关文档图像，提取以下信息：
+1. 文档类型（律师证、合同、奖项证书等）
+2. 关键信息（姓名、证号、机构名称、日期等）
+3. 置信度评估
+请以JSON格式回复，包含category、key_entities、confidence、description字段。
+"""
+                        vision_result = await self.analyze_vision(file_path, vision_prompt)
+                        if vision_result.get("success"):
+                            try:
+                                vision_analysis = json.loads(vision_result["result"])
+                                logger.info(f"AI视觉分析完成: {vision_analysis.get('category', 'unknown')}")
+                            except:
+                                vision_analysis = {"description": vision_result["result"]}
+                    except Exception as e:
+                        logger.warning(f"视觉分析失败: {e}")
+            
+            # 3. AI文本分析
+            ai_text_analysis = None
+            if self.enable_ai and self.ai_api_key and text_content:
+                try:
+                    text_analysis_prompt = f"""
+请分析以下法律文档内容，提取关键信息：
+
+文档内容：
+{text_content[:3000]}  # 限制长度
+
+请提取以下信息并以JSON格式回复：
+{{
+    "category": "文档类型(lawyer_certificate/performance_contract/award_certificate/other)",
+    "confidence": 0.0-1.0,
+    "key_entities": {{
+        "holder_name": "持有人姓名",
+        "certificate_number": "证书编号", 
+        "law_firm": "律师事务所",
+        "issuer": "颁发机构",
+        "date": "相关日期"
+    }},
+    "description": "文档描述",
+    "business_field": "业务领域"
+}}
+"""
+                    ai_result = await self.analyze_text(text_analysis_prompt)
+                    if ai_result.get("success"):
+                        try:
+                            ai_text_analysis = json.loads(ai_result.get("result", "{}"))
+                            logger.info(f"AI文本分析完成: {ai_text_analysis.get('category', 'unknown')}")
+                        except:
+                            ai_text_analysis = ai_result.get("result", {})
+                except Exception as e:
+                    logger.warning(f"AI文本分析失败: {e}")
+            
+            # 4. 整合三种分析结果
+            final_classification = await self._integrate_analysis_results(
+                text_content, 
+                ai_text_analysis, 
+                vision_analysis, 
+                file_path
+            )
+            
+            logger.info(f"智能文档分析完成: {final_classification.get('category', 'unknown')} (置信度: {final_classification.get('confidence', 0):.2f})")
+            
+            return {
+                "success": True,
+                "results": {
+                    "text_extraction_result": {
+                        "text": text_content,
+                        "extracted_content": {
+                            "text": text_content
+                        }
+                    },
+                    "ai_text_analysis": ai_text_analysis,
+                    "vision_analysis": vision_analysis,
+                    "final_classification": final_classification
+                },
+                "file_path": file_path,
+                "enable_vision": enable_vision,
+                "enable_ocr": enable_ocr
+            }
+                    
+                except Exception as e:
+            logger.error(f"智能文档分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def extract_text_with_docling(self, file_path: str) -> Dict[str, Any]:
+        """使用Docling提取文本（纯OCR功能）"""
+        try:
+            if not self.docling_converter:
+                return {
+                    "success": False,
+                    "error": "Docling转换器未就绪"
+                }
+            
+            if not os.path.exists(file_path):
+                return {
+                    "success": False,
+                    "error": "文件不存在"
+                }
+            
+            # 使用Docling转换文档（仅用于OCR）
+            result = self.docling_converter.convert(file_path)
+            
+            # 提取文本内容
+            text_content = result.document.export_to_markdown()
+            
+            return {
+                "success": True,
+                "text_content": text_content,
+                "document_info": {
+                    "pages": len(result.document.pages) if hasattr(result.document, 'pages') else 0,
+                    "format": os.path.splitext(file_path)[1].lower()
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Docling文本提取失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def extract_document_tags(self, file_path: str, existing_tags: List[str] = None) -> Dict[str, Any]:
+        """提取文档标签"""
+        try:
+            if existing_tags is None:
+                existing_tags = []
+            
+            # 使用智能文档分析获取文本内容
+            analysis_result = await self.smart_document_analysis(file_path, enable_vision=False, enable_ocr=True)
+            
+            if not analysis_result.get("success"):
+            return {
+                    "success": False,
+                    "error": "无法提取文档内容"
+                }
+            
+            text_content = analysis_result.get("results", {}).get("text_extraction_result", {}).get("text", "")
+            
+            # 基于内容提取标签
+            suggested_tags = await self._extract_tags_from_content(text_content)
+            
+            # 合并现有标签和建议标签
+            all_tags = list(set(existing_tags + suggested_tags))
+            
+            return {
+                "success": True,
+                "suggested_tags": suggested_tags,
+                "all_tags": all_tags,
+                "existing_tags": existing_tags
+            }
+            
+        except Exception as e:
+            logger.error(f"提取文档标签失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _extract_lawyer_certificate_info(self, ai_result: Dict[str, Any]) -> Dict[str, str]:
+        """从AI分析结果中提取律师证信息"""
+        try:
+            extracted_info = {}
+            
+            if not ai_result or not ai_result.get("results"):
+                return extracted_info
+            
+            # 获取文本内容
+            text_content = ""
+            if ai_result.get("results", {}).get("text_extraction_result", {}).get("text"):
+                text_content = ai_result["results"]["text_extraction_result"]["text"]
+            elif ai_result.get("results", {}).get("text_extraction_result", {}).get("extracted_content", {}).get("text"):
+                text_content = ai_result["results"]["text_extraction_result"]["extracted_content"]["text"]
+            
+            if not text_content:
+                return extracted_info
+            
+            # 使用正则表达式提取关键信息
+            import re
+            
+            # 提取律师姓名
+            name_patterns = [
+                r'姓\s*名[：:]\s*([^\s\n]+)',
+                r'律师姓名[：:]\s*([^\s\n]+)',
+                r'执业者[：:]\s*([^\s\n]+)',
+                r'持有人[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in name_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    extracted_info['lawyer_name'] = match.group(1).strip()
+                    break
+            
+            # 提取执业证号
+            cert_patterns = [
+                r'执业证号[：:]\s*([^\s\n]+)',
+                r'证书编号[：:]\s*([^\s\n]+)',
+                r'执业编号[：:]\s*([^\s\n]+)',
+                r'证号[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in cert_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    extracted_info['certificate_number'] = match.group(1).strip()
+                    break
+            
+            # 提取律师事务所
+            firm_patterns = [
+                r'律师事务所[：:]\s*([^\s\n]+)',
+                r'所在机构[：:]\s*([^\s\n]+)',
+                r'执业机构[：:]\s*([^\s\n]+)',
+                r'工作单位[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in firm_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    extracted_info['law_firm'] = match.group(1).strip()
+                    break
+            
+            # 提取颁发机构
+            issuer_patterns = [
+                r'颁发机构[：:]\s*([^\s\n]+)',
+                r'发证机关[：:]\s*([^\s\n]+)',
+                r'司法局',
+                r'司法厅',
+                r'司法部'
+            ]
+            
+            for pattern in issuer_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    extracted_info['issuing_authority'] = match.group(0).strip()
+                    break
+            
+            # 提取发证日期
+            date_patterns = [
+                r'发证日期[：:]\s*(\d{4}[年-]\d{1,2}[月-]\d{1,2})',
+                r'颁发日期[：:]\s*(\d{4}[年-]\d{1,2}[月-]\d{1,2})',
+                r'签发日期[：:]\s*(\d{4}[年-]\d{1,2}[月-]\d{1,2})'
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    extracted_info['issue_date'] = match.group(1).strip()
+                    break
+            
+            logger.info(f"律师证信息提取完成: {extracted_info}")
+            return extracted_info
+            
+        except Exception as e:
+            logger.error(f"提取律师证信息失败: {str(e)}")
+            return {}
+    
+    async def _integrate_analysis_results(self, text_content: str, ai_text_analysis: Dict, vision_analysis: Dict, file_path: str) -> Dict[str, Any]:
+        """整合OCR、AI文本分析和视觉分析的结果"""
+        try:
+            # 初始化结果
+            integrated_result = {
+                "category": "other",
+                "confidence": 0.0,
+                "description": "未知文档类型",
+                "key_entities": {},
+                "analysis_sources": []
+            }
+            
+            confidences = []
+            categories = []
+            
+            # 1. 处理AI文本分析结果
+            if ai_text_analysis:
+                if ai_text_analysis.get("category"):
+                    categories.append(ai_text_analysis["category"])
+                if ai_text_analysis.get("confidence"):
+                    confidences.append(ai_text_analysis["confidence"])
+                if ai_text_analysis.get("key_entities"):
+                    integrated_result["key_entities"].update(ai_text_analysis["key_entities"])
+                if ai_text_analysis.get("description"):
+                    integrated_result["description"] = ai_text_analysis["description"]
+                integrated_result["analysis_sources"].append("ai_text")
+            
+            # 2. 处理视觉分析结果
+            if vision_analysis:
+                if vision_analysis.get("category"):
+                    categories.append(vision_analysis["category"])
+                if vision_analysis.get("confidence"):
+                    confidences.append(vision_analysis["confidence"])
+                if vision_analysis.get("key_entities"):
+                    # 视觉分析的实体优先级更高
+                    for key, value in vision_analysis["key_entities"].items():
+                        if value and value != "unknown":
+                            integrated_result["key_entities"][key] = value
+                if vision_analysis.get("description") and not integrated_result.get("description"):
+                    integrated_result["description"] = vision_analysis["description"]
+                integrated_result["analysis_sources"].append("vision")
+            
+            # 3. 使用基础关键词分析作为兜底
+            keyword_analysis = await self._classify_content(text_content, file_path)
+            if keyword_analysis:
+                categories.append(keyword_analysis["category"])
+                confidences.append(keyword_analysis["confidence"])
+                integrated_result["analysis_sources"].append("keyword")
+            
+            # 4. 确定最终分类
+            if categories:
+                # 选择最常见的分类
+                category_counts = {}
+                for cat in categories:
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+                integrated_result["category"] = max(category_counts, key=category_counts.get)
+            
+            # 5. 计算综合置信度
+            if confidences:
+                integrated_result["confidence"] = sum(confidences) / len(confidences)
+            
+            # 6. 根据最终分类补充信息
+            if integrated_result["category"] == "lawyer_certificate":
+                # 补充律师证特有信息
+                if not integrated_result["key_entities"].get("holder_name"):
+                    # 使用正则表达式从文本中提取
+                    lawyer_entities = self._extract_lawyer_entities(text_content)
+                    integrated_result["key_entities"].update(lawyer_entities)
+                
+                # 增强描述
+                holder_name = integrated_result["key_entities"].get("holder_name")
+                if holder_name and integrated_result["description"] == "未知文档类型":
+                    integrated_result["description"] = f"律师执业证书 - {holder_name}"
+                
+                # 检查职位
+                if "合伙人" in text_content:
+                    integrated_result["key_entities"]["position"] = "合伙人"
+                    if holder_name:
+                        integrated_result["description"] = f"律师执业证书 - {holder_name}（合伙人）"
+            
+            elif integrated_result["category"] == "performance_contract":
+                # 补充业绩合同信息
+                performance_info = self._extract_performance_entities(text_content)
+                integrated_result["performance_info"] = performance_info
+                if performance_info.get("project_name") and integrated_result["description"] == "未知文档类型":
+                    integrated_result["description"] = f"法律服务合同 - {performance_info['project_name']}"
+            
+            elif integrated_result["category"] == "award_certificate":
+                # 补充奖项信息
+                award_info = self._extract_award_entities(text_content)
+                integrated_result["award_info"] = award_info
+                if award_info.get("award_name") and integrated_result["description"] == "未知文档类型":
+                    integrated_result["description"] = f"获奖证书 - {award_info['award_name']}"
+            
+            # 7. 最终置信度调整
+            source_count = len(integrated_result["analysis_sources"])
+            if source_count >= 2:
+                integrated_result["confidence"] = min(0.95, integrated_result["confidence"] + 0.1)
+            
+            return integrated_result
+            
+        except Exception as e:
+            logger.error(f"整合分析结果失败: {str(e)}")
+            # 返回基础关键词分析结果
+            return await self._classify_content(text_content, file_path)
+    
+    async def _classify_content(self, text_content: str, file_path: str) -> Dict[str, Any]:
+        """基于内容分类文档"""
+        try:
+            # 律师证关键词
+            lawyer_cert_keywords = ['执业证', '律师执业', '执业律师', '执业证书', '律师证', '执业编号', '执业证号']
+            
+            # 业绩合同关键词
+            performance_keywords = ['合同', '委托书', '协议书', '法律服务', '甲方', '乙方', '委托方', '受托方']
+            
+            # 获奖证书关键词
+            award_keywords = ['获奖', '奖项', '证书', '表彰', '荣誉', '颁发', '奖励', '评选']
+            
+            # 计算关键词匹配度
+            lawyer_cert_score = sum(1 for keyword in lawyer_cert_keywords if keyword in text_content)
+            performance_score = sum(1 for keyword in performance_keywords if keyword in text_content)
+            award_score = sum(1 for keyword in award_keywords if keyword in text_content)
+            
+            # 确定分类
+            max_score = max(lawyer_cert_score, performance_score, award_score)
+            
+            if max_score == 0:
+                category = "other"
+                confidence = 0.3
+                description = "无法确定文档类型"
+            elif lawyer_cert_score == max_score:
+                category = "lawyer_certificate"
+                confidence = min(0.9, 0.5 + lawyer_cert_score * 0.1)
+                description = "律师执业证书"
+            elif performance_score == max_score:
+                category = "performance_contract"
+                confidence = min(0.8, 0.4 + performance_score * 0.1)
+                description = "法律服务合同/委托书"
+                            else:
+                category = "award_certificate"
+                confidence = min(0.8, 0.4 + award_score * 0.1)
+                description = "获奖证书/表彰文件"
+            
+            return {
+                "category": category,
+                "confidence": confidence,
+                "description": description,
+                "keyword_scores": {
+                    "lawyer_certificate": lawyer_cert_score,
+                    "performance_contract": performance_score,
+                    "award_certificate": award_score
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"内容分类失败: {str(e)}")
+            return {
+                "category": "other",
+                "confidence": 0.1,
+                "description": "分类失败",
+                "error": str(e)
+            }
+    
+    def _extract_lawyer_entities(self, text_content: str) -> Dict[str, str]:
+        """提取律师证关键实体"""
+        try:
+            import re
+            entities = {}
+            
+            # 提取持有人姓名
+            name_patterns = [
+                r'姓\s*名[：:]\s*([^\s\n]+)',
+                r'律师姓名[：:]\s*([^\s\n]+)',
+                r'执业者[：:]\s*([^\s\n]+)',
+                r'持有人[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in name_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['holder_name'] = match.group(1).strip()
+                    break
+            
+            # 提取证书编号
+            cert_patterns = [
+                r'执业证号[：:]\s*([^\s\n]+)',
+                r'证书编号[：:]\s*([^\s\n]+)',
+                r'执业编号[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in cert_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['certificate_number'] = match.group(1).strip()
+                    break
+            
+            # 提取律师事务所
+            firm_patterns = [
+                r'律师事务所[：:]\s*([^\s\n]+)',
+                r'执业机构[：:]\s*([^\s\n]+)',
+                r'所在机构[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in firm_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['law_firm'] = match.group(1).strip()
+                    break
+            
+            # 提取颁发机构
+            if re.search(r'司法局|司法厅|司法部', text_content):
+                entities['issuer'] = re.search(r'[^\s]*司法[局厅部][^\s]*', text_content).group(0)
+            
+            return entities
+            
+        except Exception as e:
+            logger.error(f"提取律师证实体失败: {str(e)}")
+            return {}
+    
+    def _extract_performance_entities(self, text_content: str) -> Dict[str, str]:
+        """提取业绩合同关键实体"""
+        try:
+            import re
+            entities = {}
+            
+            # 提取项目名称
+            project_patterns = [
+                r'项目名称[：:]\s*([^\s\n]+)',
+                r'案件名称[：:]\s*([^\s\n]+)',
+                r'合同名称[：:]\s*([^\s\n]+)',
+                r'委托事项[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in project_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['project_name'] = match.group(1).strip()
+                    break
+            
+            # 提取客户名称
+            client_patterns = [
+                r'甲方[：:]\s*([^\s\n]+)',
+                r'委托方[：:]\s*([^\s\n]+)',
+                r'客户[：:]\s*([^\s\n]+)',
+                r'委托人[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in client_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['client_name'] = match.group(1).strip()
+                    break
+            
+            # 提取金额
+            amount_patterns = [
+                r'金额[：:]\s*([0-9,，.万元]+)',
+                r'费用[：:]\s*([0-9,，.万元]+)',
+                r'律师费[：:]\s*([0-9,，.万元]+)'
+            ]
+            
+            for pattern in amount_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['amount'] = match.group(1).strip()
+                    break
+            
+            return entities
+            
+        except Exception as e:
+            logger.error(f"提取业绩实体失败: {str(e)}")
+            return {}
+    
+    def _extract_award_entities(self, text_content: str) -> Dict[str, str]:
+        """提取奖项关键实体"""
+        try:
+            import re
+            entities = {}
+            
+            # 提取奖项名称
+            award_patterns = [
+                r'奖项[：:]\s*([^\s\n]+)',
+                r'荣誉[：:]\s*([^\s\n]+)',
+                r'表彰[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in award_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['award_name'] = match.group(1).strip()
+                    break
+            
+            # 提取颁发机构
+            issuer_patterns = [
+                r'颁发机构[：:]\s*([^\s\n]+)',
+                r'主办方[：:]\s*([^\s\n]+)',
+                r'组织方[：:]\s*([^\s\n]+)'
+            ]
+            
+            for pattern in issuer_patterns:
+                match = re.search(pattern, text_content)
+                if match:
+                    entities['issuer'] = match.group(1).strip()
+                    break
+            
+            return entities
+            
+        except Exception as e:
+            logger.error(f"提取奖项实体失败: {str(e)}")
+            return {}
+    
+    async def _extract_tags_from_content(self, text_content: str) -> List[str]:
+        """从内容中提取标签"""
+        try:
+            tags = []
+            
+            # 业务领域标签
+            business_fields = {
+                '并购': ['并购', '收购', '重组', 'M&A'],
+                '资本市场': ['IPO', '上市', '证券', '股票', '债券'],
+                '银行金融': ['银行', '金融', '贷款', '融资', '信贷'],
+                '知识产权': ['专利', '商标', '版权', '著作权', '知识产权'],
+                '争议解决': ['仲裁', '诉讼', '调解', '争议', '纠纷'],
+                '合规监管': ['合规', '监管', '反腐', '反洗钱', '数据保护'],
+                '房地产': ['房地产', '土地', '建筑', '物业', '房产'],
+                '劳动法': ['劳动', '人力资源', '员工', '雇佣', '薪酬'],
+                '税务': ['税务', '税收', '纳税', '税法', '税务筹划'],
+                '能源矿产': ['能源', '矿产', '石油', '天然气', '煤炭']
+            }
+            
+            for field, keywords in business_fields.items():
+                if any(keyword in text_content for keyword in keywords):
+                    tags.append(field)
+            
+            # 文档类型标签
+            if '合同' in text_content:
+                tags.append('合同')
+            if '协议' in text_content:
+                tags.append('协议')
+            if '证书' in text_content:
+                tags.append('证书')
+            if '报告' in text_content:
+                tags.append('报告')
+            
+            return list(set(tags))
+            
+        except Exception as e:
+            logger.error(f"从内容提取标签失败: {str(e)}")
+            return []
+
+    def _get_ai_api_key(self) -> str:
+        """获取AI API密钥"""
+        if self.ai_provider == "openai":
+            return self._get_setting_value("openai_api_key", os.getenv("OPENAI_API_KEY", ""))
+        elif self.ai_provider == "azure":
+            return self._get_setting_value("azure_openai_api_key", os.getenv("AZURE_OPENAI_API_KEY", ""))
+        elif self.ai_provider == "anthropic":
+            return self._get_setting_value("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", ""))
+        elif self.ai_provider == "custom":
+            return self._get_setting_value("custom_ai_api_key", os.getenv("CUSTOM_AI_API_KEY", ""))
+                            else:
+            return ""
+    
+    def _get_ai_base_url(self) -> str:
+        """获取AI API基础URL"""
+        if self.ai_provider == "openai":
+            return self._get_setting_value("openai_base_url", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
+        elif self.ai_provider == "azure":
+            endpoint = self._get_setting_value("azure_openai_endpoint", os.getenv("AZURE_OPENAI_ENDPOINT", ""))
+            return endpoint.rstrip("/") + "/openai/deployments" if endpoint else ""
+        elif self.ai_provider == "custom":
+            return self._get_setting_value("custom_ai_base_url", os.getenv("CUSTOM_AI_BASE_URL", ""))
+        else:
+            return ""
+    
+    def _get_ai_model(self) -> str:
+        """获取AI模型名称"""
+        if self.ai_provider == "openai":
+            return self._get_setting_value("openai_model", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"))
+        elif self.ai_provider == "azure":
+            return self._get_setting_value("azure_openai_deployment_name", os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", ""))
+        elif self.ai_provider == "anthropic":
+            return self._get_setting_value("anthropic_model", os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229"))
+        elif self.ai_provider == "custom":
+            return self._get_setting_value("custom_ai_model", os.getenv("CUSTOM_AI_MODEL", "gpt-3.5-turbo"))
+        else:
+            return "gpt-3.5-turbo"
+    
+    def _get_ai_vision_model(self) -> str:
+        """获取AI视觉模型名称"""
+        # 首先检查是否有独立的视觉服务配置
+        vision_provider = self._get_setting_value("vision_provider", "")
+        if vision_provider:
+            if vision_provider == "ollama":
+                return self._get_setting_value("ai_vision_model", "llava:latest")
+            elif vision_provider == "openai":
+                return self._get_setting_value("ai_vision_model", "gpt-4-vision-preview")
+            elif vision_provider == "azure":
+                return self._get_setting_value("ai_vision_model", "")
+            elif vision_provider == "custom":
+                return self._get_setting_value("ai_vision_model", "gpt-4-vision-preview")
+        
+        # 回退到原始逻辑（基于主AI provider）
+        if self.ai_provider == "openai":
+            return self._get_setting_value("openai_vision_model", os.getenv("OPENAI_VISION_MODEL", "gpt-4-vision-preview"))
+        elif self.ai_provider == "azure":
+            return self._get_setting_value("azure_openai_vision_deployment_name", os.getenv("AZURE_OPENAI_VISION_DEPLOYMENT_NAME", ""))
+        elif self.ai_provider == "custom":
+            return self._get_setting_value("custom_ai_vision_model", os.getenv("CUSTOM_AI_VISION_MODEL", "gpt-4-vision-preview"))
+        else:
+            return "gpt-4-vision-preview"
+    
+    async def chat_with_tools(
+        self, 
+        user_message: str, 
+        system_prompt: str = "", 
+        tools: List[Dict] = None, 
+        tool_executor=None
+    ) -> Dict[str, Any]:
+        """调用AI进行对话，支持工具调用"""
+        try:
+            if not self.enable_ai or not self.ai_api_key:
+                return {
+                    "success": False,
+                    "error": "AI服务未配置或未启用",
+                    "response": "抱歉，AI服务当前不可用。请联系管理员配置AI服务。"
+                }
+            
+            # 构建消息
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_message})
+            
+            # 调用AI API
+            ai_response = await self._call_ai_api(
+                messages=messages,
+                model=self.ai_model,
+                tools=tools
+            )
+            
+            if not ai_response.get("success"):
+                return ai_response
+            
+            response_data = ai_response["response"]
+            ai_message = response_data.get("choices", [{}])[0].get("message", {})
+            
+            # 处理工具调用
+            tools_used = []
+            if ai_message.get("tool_calls") and tool_executor:
+                for tool_call in ai_message["tool_calls"]:
+                    try:
+                        tool_name = tool_call["function"]["name"]
+                        tool_args = json.loads(tool_call["function"]["arguments"])
+                        
+                        # 执行工具
+                        tool_result = await tool_executor(tool_name, tool_args)
+                        tools_used.append({
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "result": tool_result
+                        })
+                        
+                        # 将工具结果加入对话
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": json.dumps(tool_result, ensure_ascii=False)
+                        })
+                        
+                    except Exception as tool_err:
+                        logger.warning(f"工具调用失败: {tool_err}")
+                        tools_used.append({
+                            "tool_name": tool_call["function"]["name"],
+                            "error": str(tool_err)
+                        })
+                
+                # 如果有工具调用，再次调用AI获取最终回复
+                if tools_used:
+                    final_response = await self._call_ai_api(
+                        messages=messages,
+                        model=self.ai_model
+                    )
+                    if final_response.get("success"):
+                        final_message = final_response["response"].get("choices", [{}])[0].get("message", {})
+                        ai_message = final_message
+                    
+                    return {
+                        "success": True,
+                "response": ai_message.get("content", "抱歉，我无法理解您的请求。"),
+                "tools_used": tools_used,
+                "model": self.ai_model,
+                "provider": self.ai_provider
+                    }
+                    
+                except Exception as e:
+            logger.error(f"AI对话失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "response": "抱歉，AI服务暂时不可用。"
+            }
+    
+    async def analyze_text(self, prompt: str, model: str = None) -> Dict[str, Any]:
+        """调用AI进行文本分析"""
+        try:
+            if not self.enable_ai or not self.ai_api_key:
+                return {
+                    "success": False,
+                    "error": "AI服务未配置或未启用"
+                }
+            
+            use_model = model or self.ai_model
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": "你是一个专业的法律文档分析助手。请仔细分析用户提供的内容，并按照要求提取相关信息。回复必须是JSON格式。"
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+            
+            ai_response = await self._call_ai_api(
+                messages=messages,
+                model=use_model
+            )
+            
+            if not ai_response.get("success"):
+                return ai_response
+            
+            response_data = ai_response["response"]
+            ai_message = response_data.get("choices", [{}])[0].get("message", {})
+            content = ai_message.get("content", "")
+            
+            # 尝试解析JSON回复
+            try:
+                result = json.loads(content)
+                return {
+                    "success": True,
+                    "result": result,
+                    "raw_content": content,
+                    "model": use_model,
+                    "provider": self.ai_provider
+                }
+            except json.JSONDecodeError:
+                # 如果不是JSON，返回原始内容
+                return {
+                    "success": True,
+                    "result": {"content": content},
+                    "raw_content": content,
+                    "model": use_model,
+                    "provider": self.ai_provider
+                }
+            
+        except Exception as e:
+            logger.error(f"AI文本分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def analyze_vision(self, image_path: str, prompt: str) -> Dict[str, Any]:
+        """调用AI进行图像分析"""
+        try:
+            # 检查是否有独立的视觉服务配置
+            vision_provider = self._get_setting_value("vision_provider", "")
+            
+            if vision_provider:
+                # 使用独立的视觉服务配置
+                vision_base_url = self._get_setting_value("vision_base_url", "")
+                vision_api_key = self._get_setting_value("vision_api_key", "")
+                
+                # 如果没有设置视觉专用的API密钥，使用主AI的API密钥
+                if not vision_api_key:
+                    vision_api_key = self.ai_api_key
+                
+                # 如果没有设置视觉专用的base_url，使用主AI的base_url
+                if not vision_base_url:
+                    vision_base_url = self.ai_base_url
+                
+                logger.info(f"使用独立视觉服务: provider={vision_provider}, model={self.ai_vision_model}, url={vision_base_url}")
+            else:
+                # 使用主AI服务的配置
+                vision_base_url = self.ai_base_url
+                vision_api_key = self.ai_api_key
+                vision_provider = self.ai_provider
+                logger.info(f"使用主AI服务进行视觉分析: provider={vision_provider}, model={self.ai_vision_model}")
+            
+            if not vision_api_key and vision_provider != "ollama":
+                return {
+                    "success": False,
+                    "error": "视觉分析服务未配置API密钥"
+                }
+            
+            # 检查文件类型，如果是PDF需要转换为图片
+            file_ext = os.path.splitext(image_path)[1].lower()
+            actual_image_path = image_path
+            
+            if file_ext == '.pdf':
+                try:
+                    # 将PDF转换为图片
+                    import fitz  # PyMuPDF
+                    import tempfile
+                    
+                    doc = fitz.open(image_path)
+                    page = doc.load_page(0)  # 只分析第一页
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 提高分辨率
+                    
+                    # 创建临时图片文件
+                    temp_dir = tempfile.gettempdir()
+                    temp_image_path = os.path.join(temp_dir, f"temp_vision_{os.getpid()}_{hash(image_path)}.png")
+                    pix.save(temp_image_path)
+                    
+                    actual_image_path = temp_image_path
+                    doc.close()
+                    
+                    logger.info(f"PDF转换为图片成功: {temp_image_path}")
+                    
+                except Exception as e:
+                    logger.error(f"PDF转图片失败: {e}")
+            return {
+                "success": False,
+                        "error": f"PDF转图片失败: {e}"
+                    }
+            
+            elif file_ext not in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                return {
+                    "success": False,
+                    "error": f"不支持的图片格式: {file_ext}"
+                }
+            
+            # 读取图像并转换为base64
+            import base64
+            with open(actual_image_path, "rb") as image_file:
+                image_data = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            # 清理临时文件
+            if file_ext == '.pdf' and actual_image_path != image_path:
+                try:
+                    os.remove(actual_image_path)
+                except:
+                    pass
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": "你是一个专业的法律文档图像分析助手。请仔细分析图像内容，并按照要求提取相关信息。"
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            # 构建请求数据
+            request_data = {
+                "model": self.ai_vision_model,
+                "messages": messages,
+                "max_tokens": 4000,
+                "temperature": 0.1
+            }
+            
+            # 构建请求头
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # 根据视觉服务提供商设置认证和URL
+            if vision_provider == "ollama":
+                # Ollama通常不需要API密钥
+                url = f"{vision_base_url}/chat/completions"
+            elif vision_provider in ["openai", "custom"]:
+                headers["Authorization"] = f"Bearer {vision_api_key}"
+                url = f"{vision_base_url}/chat/completions"
+            elif vision_provider == "azure":
+                headers["api-key"] = vision_api_key
+                url = f"{vision_base_url}/{self.ai_vision_model}/chat/completions?api-version=2024-02-01"
+            else:
+                return {
+                    "success": False,
+                    "error": f"不支持的视觉服务提供商: {vision_provider}"
+                }
+            
+            # 发送请求
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=request_data, headers=headers) as response:
+                    if response.status == 200:
+                        response_data = await response.json()
+                        ai_message = response_data.get("choices", [{}])[0].get("message", {})
+                        content = ai_message.get("content", "")
+                        
+                        logger.info(f"视觉分析成功: {len(content)} 字符")
+                        
+                        return {
+                            "success": True,
+                            "result": content,
+                            "model": self.ai_vision_model,
+                            "provider": vision_provider
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"视觉分析API调用失败: {response.status} - {error_text}")
+                        return {
+                            "success": False,
+                            "error": f"视觉分析API调用失败: {response.status}",
+                            "details": error_text
+            }
+            
+        except Exception as e:
+            logger.error(f"AI图像分析失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _call_ai_api(
+        self, 
+        messages: List[Dict], 
+        model: str, 
+        tools: List[Dict] = None,
+        max_tokens: int = 4000,
+        temperature: float = 0.1
+    ) -> Dict[str, Any]:
+        """调用AI API的底层方法"""
+        try:
+            # 构建请求数据
+            request_data = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature
+            }
+            
+            if tools:
+                request_data["tools"] = tools
+                request_data["tool_choice"] = "auto"
+            
+            # 构建请求头
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # 根据提供商设置认证头
+            if self.ai_provider == "openai":
+                headers["Authorization"] = f"Bearer {self.ai_api_key}"
+                url = f"{self.ai_base_url}/chat/completions"
+            elif self.ai_provider == "azure":
+                headers["api-key"] = self.ai_api_key
+                url = f"{self.ai_base_url}/{model}/chat/completions?api-version=2024-02-01"
+            elif self.ai_provider == "anthropic":
+                headers["x-api-key"] = self.ai_api_key
+                headers["anthropic-version"] = "2023-06-01"
+                url = f"https://api.anthropic.com/v1/messages"
+                # Anthropic API格式不同，需要转换
+                request_data = self._convert_to_anthropic_format(request_data)
+            elif self.ai_provider == "custom":
+                headers["Authorization"] = f"Bearer {self.ai_api_key}"
+                url = f"{self.ai_base_url}/chat/completions"
+            else:
+                return {
+                    "success": False,
+                    "error": f"不支持的AI提供商: {self.ai_provider}"
+                }
+            
+            # 发送请求
+            timeout = aiohttp.ClientTimeout(total=60)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=request_data, headers=headers) as response:
+                    if response.status == 200:
+                        response_data = await response.json()
+                        return {
+                            "success": True,
+                            "response": response_data
+                        }
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"AI API调用失败: {response.status} - {error_text}")
+                        return {
+                            "success": False,
+                            "error": f"AI API调用失败: {response.status}",
+                            "details": error_text
+                        }
+                        
+        except Exception as e:
+            logger.error(f"AI API调用异常: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _convert_to_anthropic_format(self, openai_data: Dict) -> Dict:
+        """将OpenAI格式转换为Anthropic格式"""
+        # Anthropic API格式转换逻辑
+        messages = []
+        system_message = ""
+        
+        for msg in openai_data["messages"]:
+            if msg["role"] == "system":
+                system_message = msg["content"]
+            else:
+                messages.append(msg)
+        
+        result = {
+            "model": openai_data["model"],
+            "max_tokens": openai_data.get("max_tokens", 4000),
+            "messages": messages
+        }
+        
+        if system_message:
+            result["system"] = system_message
+        
+        return result
+
+# 创建全局AI服务实例
+ai_service = AIService() 
