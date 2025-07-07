@@ -357,36 +357,39 @@ class AIService:
                     # 尝试使用动态配置的prompt
                     try:
                         # 首先进行文档分类
-                        system_prompt, user_prompt = self.config_manager.build_prompt(
+                        classification_prompt = self.config_manager.build_prompt(
                             "document_classification",
-                            content=combined_content
+                            {"text_content": combined_content}
                         )
                         
-                        if system_prompt and user_prompt:
+                        if classification_prompt:
                             # 使用动态配置的分类prompt
-                            classification_result = await self.analyze_text(user_prompt)
+                            classification_result = await self.analyze_text(classification_prompt)
                             
                             if classification_result.get("success"):
                                 # 解析分类结果
                                 try:
-                                    classification_content = classification_result.get("raw_content", "")
-                                    json_match = re.search(r'\{.*\}', classification_content, re.DOTALL)
-                                    if json_match:
-                                        classification_data = json.loads(json_match.group())
-                                        doc_type = classification_data.get("type", "unknown")
-                                        confidence = classification_data.get("confidence", 0.0)
-                                        reason = classification_data.get("reason", "")
-                                        
-                                        logger.info(f"动态分类结果: {doc_type} (置信度: {confidence})")
+                                    classification_content = classification_result.get("result", "")
+                                    if isinstance(classification_content, dict):
+                                        classification_data = classification_content
                                     else:
-                                        # 分类失败，使用回退方案
-                                        doc_type = "unknown"
-                                        confidence = 0.0
-                                        reason = "分类解析失败"
-                                except json.JSONDecodeError:
+                                        # 尝试从字符串中提取JSON
+                                        json_match = re.search(r'\{.*\}', str(classification_content), re.DOTALL)
+                                        if json_match:
+                                            classification_data = json.loads(json_match.group())
+                                        else:
+                                            classification_data = {}
+                                    
+                                    doc_type = classification_data.get("document_type", "unknown")
+                                    confidence = classification_data.get("confidence", 0.0)
+                                    reason = classification_data.get("reasoning", "")
+                                    
+                                    logger.info(f"动态分类结果: {doc_type} (置信度: {confidence})")
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.warning(f"分类解析失败: {e}")
                                     doc_type = "unknown"
                                     confidence = 0.0
-                                    reason = "分类JSON解析失败"
+                                    reason = "分类解析失败"
                             else:
                                 doc_type = "unknown"
                                 confidence = 0.0
@@ -402,26 +405,32 @@ class AIService:
                         business_confidence = 0.0
                         business_keywords = []
                         
-                        system_prompt_bf, user_prompt_bf = self.config_manager.build_prompt(
+                        business_prompt = self.config_manager.build_prompt(
                             "business_field_classification",
-                            content=combined_content
+                            {"text_content": combined_content}
                         )
                         
-                        if system_prompt_bf and user_prompt_bf:
-                            business_result = await self.analyze_text(user_prompt_bf)
+                        if business_prompt:
+                            business_result = await self.analyze_text(business_prompt)
                             if business_result.get("success"):
                                 try:
-                                    business_content = business_result.get("raw_content", "")
-                                    json_match = re.search(r'\{.*\}', business_content, re.DOTALL)
-                                    if json_match:
-                                        business_data = json.loads(json_match.group())
-                                        business_field = business_data.get("name", "未识别")
-                                        business_confidence = business_data.get("confidence", 0.0)
-                                        business_keywords = business_data.get("keywords_found", [])
-                                        
-                                        logger.info(f"动态业务领域分类: {business_field} (置信度: {business_confidence})")
-                                except json.JSONDecodeError:
-                                    logger.warning("业务领域分类JSON解析失败")
+                                    business_content = business_result.get("result", "")
+                                    if isinstance(business_content, dict):
+                                        business_data = business_content
+                                    else:
+                                        # 尝试从字符串中提取JSON
+                                        json_match = re.search(r'\{.*\}', str(business_content), re.DOTALL)
+                                        if json_match:
+                                            business_data = json.loads(json_match.group())
+                                        else:
+                                            business_data = {}
+                                    
+                                    business_field = business_data.get("business_field", "未识别")
+                                    business_confidence = business_data.get("confidence", 0.0)
+                                    
+                                    logger.info(f"动态业务领域分类: {business_field} (置信度: {business_confidence})")
+                                except (json.JSONDecodeError, KeyError) as e:
+                                    logger.warning(f"业务领域分类解析失败: {e}")
                         else:
                             # 回退到关键词匹配
                             keyword_result = self.config_manager.classify_business_field_by_keywords(combined_content)

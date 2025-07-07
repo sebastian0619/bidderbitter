@@ -4,6 +4,11 @@ import time
 from datetime import datetime
 import uuid
 import fitz  # PyMuPDF
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 try:
     import magic
     MAGIC_AVAILABLE = True
@@ -30,19 +35,18 @@ except ImportError as e:
     DOCLING_SERVICE_AVAILABLE = False
     docling_service = None
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # 输出目录配置
-UPLOAD_DIR = os.environ.get("UPLOAD_PATH", "/app/uploads")
+UPLOAD_DIR = os.environ.get("UPLOAD_PATH", "./uploads")
 CONVERTED_DIR = os.path.join(UPLOAD_DIR, "converted")
-GENERATED_DIR = os.environ.get("GENERATED_DOCS_PATH", "/app/generated_docs")
+GENERATED_DIR = os.environ.get("GENERATED_DOCS_PATH", "./generated_docs")
 
 # 确保目录存在
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(CONVERTED_DIR, exist_ok=True)
-os.makedirs(GENERATED_DIR, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(CONVERTED_DIR, exist_ok=True)
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+except OSError as e:
+    logger.warning(f"无法创建目录: {e}")
 
 def clean_heading_style(heading):
     """清除标题的项目符号和列表样式，防止出现小黑点"""
@@ -357,6 +361,84 @@ class DoclingDocumentProcessor:
             
             logger.info(f"开始使用DoclingService处理PDF: {filename}")
             
+            # 首先检测PDF类型（扫描件 vs 非扫描件）
+            pdf_type = await self._detect_pdf_type(pdf_path)
+            logger.info(f"PDF类型检测结果: {pdf_type}")
+            
+            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
+            if show_file_titles:
+                filename_without_ext = os.path.splitext(filename)[0]
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
+            
+            if pdf_type == "scanned":
+                # 扫描件PDF：使用Docling进行OCR和文本提取
+                return await self._process_scanned_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
+            else:
+                # 非扫描件PDF：直接转换为图片，保持原始格式
+                return await self._process_native_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
+            
+        except Exception as e:
+            logger.error(f"DoclingService处理PDF失败: {e}")
+            # 降级到PyMuPDF
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
+    
+    async def _detect_pdf_type(self, pdf_path: str) -> str:
+        """检测PDF类型：扫描件 vs 非扫描件"""
+        try:
+            import fitz
+            
+            pdf_document = fitz.open(pdf_path)
+            total_pages = len(pdf_document)
+            
+            # 检查前3页（或全部页面，如果少于3页）
+            pages_to_check = min(3, total_pages)
+            text_ratio = 0
+            image_ratio = 0
+            
+            for page_num in range(pages_to_check):
+                page = pdf_document.load_page(page_num)
+                
+                # 获取文本
+                text = page.get_text()
+                text_length = len(text.strip())
+                
+                # 获取图片
+                image_list = page.get_images()
+                image_count = len(image_list)
+                
+                # 计算比例
+                if text_length > 0:
+                    text_ratio += 1
+                if image_count > 0:
+                    image_ratio += 1
+            
+            pdf_document.close()
+            
+            # 判断PDF类型
+            text_percentage = text_ratio / pages_to_check
+            image_percentage = image_ratio / pages_to_check
+            
+            logger.info(f"PDF类型分析 - 文本页面比例: {text_percentage:.2f}, 图片页面比例: {image_percentage:.2f}")
+            
+            # 如果大部分页面都有可提取文本，认为是非扫描件
+            if text_percentage > 0.7:
+                return "native"
+            # 如果大部分页面都有图片且文本很少，认为是扫描件
+            elif image_percentage > 0.7 and text_percentage < 0.3:
+                return "scanned"
+            else:
+                # 混合类型，优先按非扫描件处理
+                return "mixed"
+                
+        except Exception as e:
+            logger.warning(f"PDF类型检测失败: {e}，默认按非扫描件处理")
+            return "native"
+    
+    async def _process_scanned_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
+        """处理扫描件PDF：使用Docling进行OCR和文本提取"""
+        try:
+            logger.info(f"处理扫描件PDF: {filename}")
+            
             # 使用DoclingService转换PDF
             conv_result = await self.converter.convert_document(pdf_path)
             
@@ -364,15 +446,10 @@ class DoclingDocumentProcessor:
                 logger.warning(f"DoclingService转换失败: {conv_result.get('error')}")
                 return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
-            # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
-            if show_file_titles:
-                filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
-            
             # 添加文档内容
             text_content = conv_result.get("text", "")
             if text_content.strip():
-                content_heading = create_clean_heading(doc, "文档内容", level=2)
+                content_heading = create_clean_heading(doc, "OCR识别文本", level=2)
                 # 将长文本分段
                 paragraphs = text_content.split('\n\n')
                 for para_text in paragraphs:
@@ -388,6 +465,7 @@ class DoclingDocumentProcessor:
                     stats_para.add_run(f"总页数: {metadata['pages']} 页\n")
                 if "file_type" in metadata:
                     stats_para.add_run(f"文件类型: {metadata['file_type']}\n")
+                stats_para.add_run("处理方式: OCR文本识别\n")
             
             # 添加页面截图作为补充
             await self._add_page_screenshots(doc, pdf_path)
@@ -395,25 +473,109 @@ class DoclingDocumentProcessor:
             # 在PDF处理完成后添加分页符（除非是最后一个文件）
             if not is_last_file:
                 doc.add_page_break()
-                logger.info(f"PDF处理完成，已添加分页符: {filename}")
+                logger.info(f"扫描件PDF处理完成，已添加分页符: {filename}")
             else:
-                logger.info(f"PDF处理完成，跳过分页符（最后一个文件）: {filename}")
+                logger.info(f"扫描件PDF处理完成，跳过分页符（最后一个文件）: {filename}")
             
             return {
                 "success": True,
-                "message": "PDF处理成功（DoclingService）",
+                "message": "扫描件PDF处理成功（OCR文本识别）",
                 "text_extracted": True,
                 "text_length": len(text_content),
-                "metadata": metadata
+                "metadata": metadata,
+                "pdf_type": "scanned"
             }
             
         except Exception as e:
-            logger.error(f"DoclingService处理PDF失败: {e}")
-            # 降级到PyMuPDF
+            logger.error(f"扫描件PDF处理失败: {e}")
             return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
     
+    async def _process_native_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
+        """处理非扫描件PDF：直接转换为图片，保持原始格式"""
+        try:
+            logger.info(f"处理非扫描件PDF: {filename}")
+            
+            # 添加处理说明
+            info_heading = create_clean_heading(doc, "文档说明", level=2)
+            info_para = doc.add_paragraph()
+            info_para.add_run("此PDF文档包含可编辑文本，为保持原始格式，已转换为图片形式展示。")
+            info_para.add_run("\n如需编辑文本内容，请使用原始PDF文件。")
+            
+            # 直接转换为图片并插入
+            await self._add_page_screenshots_enhanced(doc, pdf_path, is_last_file)
+            
+            # 在PDF处理完成后添加分页符（除非是最后一个文件）
+            if not is_last_file:
+                doc.add_page_break()
+                logger.info(f"非扫描件PDF处理完成，已添加分页符: {filename}")
+            else:
+                logger.info(f"非扫描件PDF处理完成，跳过分页符（最后一个文件）: {filename}")
+            
+            return {
+                "success": True,
+                "message": "非扫描件PDF处理成功（图片格式保持）",
+                "text_extracted": False,
+                "pdf_type": "native"
+            }
+            
+        except Exception as e:
+            logger.error(f"非扫描件PDF处理失败: {e}")
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
+    
+    async def _add_page_screenshots_enhanced(self, doc: Document, pdf_path: str, is_last_file: bool = False):
+        """增强的PDF页面截图功能，专门用于非扫描件PDF"""
+        try:
+            import fitz
+            
+            create_clean_heading(doc, "PDF页面内容", level=2)
+            
+            pdf_document = fitz.open(pdf_path)
+            total_pages = len(pdf_document)
+            
+            for page_num in range(total_pages):
+                page = pdf_document.load_page(page_num)
+                
+                # 使用更高分辨率确保文本清晰
+                mat = fitz.Matrix(3.0, 3.0)  # 提高分辨率到3倍
+                pix = page.get_pixmap(matrix=mat)
+                
+                temp_image_path = f"temp_native_page_{page_num + 1}_{uuid.uuid4().hex[:8]}.png"
+                pix.save(temp_image_path)
+                
+                try:
+                    # 添加页码标题
+                    page_heading = create_clean_heading(doc, f"第 {page_num + 1} 页(共 {total_pages} 页)", level=4)
+                    
+                    # 智能计算图片大小 - 非扫描件使用更大的尺寸
+                    image_width, _ = self._calculate_image_size_for_page(
+                        temp_image_path, page_num, True, max_height_inches=9.0  # 增加最大高度
+                    )
+                    
+                    # 添加图片（居中对齐）
+                    img_para = doc.add_paragraph()
+                    img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    img_para.add_run().add_picture(temp_image_path, width=image_width)
+                    
+                    # 只在不是最后一页时添加分页符
+                    if page_num < total_pages - 1:
+                        doc.add_page_break()
+                    
+                except Exception as img_error:
+                    logger.warning(f"添加第{page_num + 1}页截图失败: {img_error}")
+                    doc.add_paragraph(f"第{page_num + 1}页图像处理失败")
+                
+                # 清理临时文件
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+            
+            pdf_document.close()
+                
+        except Exception as e:
+            logger.error(f"增强页面截图失败: {e}")
+            doc.add_paragraph(f"PDF页面处理失败: {str(e)}")
+    
     async def _add_page_screenshots(self, doc: Document, pdf_path: str):
-        """添加PDF页面截图作为补充"""
+        """添加PDF页面截图作为补充（用于扫描件PDF）"""
         try:
             import fitz
             
@@ -1087,6 +1249,18 @@ class DocumentProcessor:
             pdf_document = fitz.open(pdf_path)
             page_count = len(pdf_document)
             
+            # 检测PDF类型
+            pdf_type = await DocumentProcessor._detect_pdf_type_static(pdf_path)
+            logger.info(f"PDF类型检测结果: {pdf_type}")
+            
+            # 添加文档标题
+            if pdf_type == "scanned":
+                format_heading_standalone(doc, "扫描件PDF转换结果", level=1, center=True)
+                doc.add_paragraph("此PDF为扫描件，已通过OCR技术提取文本内容。")
+            else:
+                format_heading_standalone(doc, "PDF转换结果", level=1, center=True)
+                doc.add_paragraph("此PDF包含可编辑文本，为保持原始格式已转换为图片形式。")
+            
             for page_num in range(len(pdf_document)):
                 page = pdf_document.load_page(page_num)
                 
@@ -1094,13 +1268,22 @@ class DocumentProcessor:
                 if page_num > 0:  # 第一页不添加页面分隔标题
                     format_heading_standalone(doc, f"第 {page_num + 1} 页(共 {page_count} 页)", level=2, center=True)
                 
-                # 获取文本（以防万一，可能有些可提取文本）
-                text = page.get_text()
-                if text.strip():
-                    doc.add_paragraph(text)
+                # 对于扫描件PDF，尝试提取文本
+                if pdf_type == "scanned":
+                    text = page.get_text()
+                    if text.strip():
+                        doc.add_paragraph("提取的文本内容：")
+                        doc.add_paragraph(text.strip())
+                        doc.add_paragraph()  # 添加空行分隔
                 
                 # 将页面渲染为图片
-                pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
+                # 根据PDF类型使用不同的分辨率
+                if pdf_type == "scanned":
+                    mat = fitz.Matrix(2.0, 2.0)  # 扫描件使用标准分辨率
+                else:
+                    mat = fitz.Matrix(3.0, 3.0)  # 非扫描件使用高分辨率确保文本清晰
+                
+                pix = page.get_pixmap(matrix=mat)
                 img_data = pix.tobytes("png")
                 
                 # 创建临时图片文件
@@ -1109,11 +1292,19 @@ class DocumentProcessor:
                 # 添加图片到Word（居中对齐）
                 img_para = doc.add_paragraph()
                 img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                # 根据页码确定图片大小
+                
+                # 根据页码和PDF类型确定图片大小
                 if page_num == 0:
-                    img_width = Inches(5.5)  # 第一页适中大小
+                    if pdf_type == "scanned":
+                        img_width = Inches(5.5)  # 扫描件第一页适中大小
+                    else:
+                        img_width = Inches(6.0)  # 非扫描件第一页稍大
                 else:
-                    img_width = Inches(6.23)  # 非第一页使用15.83厘米
+                    if pdf_type == "scanned":
+                        img_width = Inches(6.23)  # 扫描件非第一页使用15.83厘米
+                    else:
+                        img_width = Inches(6.5)  # 非扫描件非第一页使用更大尺寸
+                
                 img_para.add_run().add_picture(img_stream, width=img_width)
                 
                 # 添加分页符（除最后一页）
@@ -1129,6 +1320,59 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"PDF转Word失败: {str(e)}")
             raise
+    
+    @staticmethod
+    async def _detect_pdf_type_static(pdf_path: str) -> str:
+        """静态方法：检测PDF类型：扫描件 vs 非扫描件"""
+        try:
+            import fitz
+            
+            pdf_document = fitz.open(pdf_path)
+            total_pages = len(pdf_document)
+            
+            # 检查前3页（或全部页面，如果少于3页）
+            pages_to_check = min(3, total_pages)
+            text_ratio = 0
+            image_ratio = 0
+            
+            for page_num in range(pages_to_check):
+                page = pdf_document.load_page(page_num)
+                
+                # 获取文本
+                text = page.get_text()
+                text_length = len(text.strip())
+                
+                # 获取图片
+                image_list = page.get_images()
+                image_count = len(image_list)
+                
+                # 计算比例
+                if text_length > 0:
+                    text_ratio += 1
+                if image_count > 0:
+                    image_ratio += 1
+            
+            pdf_document.close()
+            
+            # 判断PDF类型
+            text_percentage = text_ratio / pages_to_check
+            image_percentage = image_ratio / pages_to_check
+            
+            logger.info(f"PDF类型分析 - 文本页面比例: {text_percentage:.2f}, 图片页面比例: {image_percentage:.2f}")
+            
+            # 如果大部分页面都有可提取文本，认为是非扫描件
+            if text_percentage > 0.7:
+                return "native"
+            # 如果大部分页面都有图片且文本很少，认为是扫描件
+            elif image_percentage > 0.7 and text_percentage < 0.3:
+                return "scanned"
+            else:
+                # 混合类型，优先按非扫描件处理
+                return "mixed"
+                
+        except Exception as e:
+            logger.warning(f"PDF类型检测失败: {e}，默认按非扫描件处理")
+            return "native"
     
     @staticmethod
     async def convert_image_to_word(image_path: str, output_path: str) -> Tuple[str, int]:
@@ -1481,6 +1725,125 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"分析模板字段失败: {str(e)}")
             raise
+
+    @staticmethod
+    async def merge_word_documents(document_paths: List[str], output_path: str, 
+                                  show_file_titles: bool = True, file_title_level: int = 2,
+                                  add_page_breaks: bool = True) -> Dict[str, Any]:
+        """
+        拼接多个Word文档为一个文档
+        
+        参数:
+        - document_paths: 待拼接Word文档路径列表
+        - output_path: 输出文档路径
+        - show_file_titles: 是否显示文件标题
+        - file_title_level: 文件标题层级
+        - add_page_breaks: 是否在文档间添加分页符
+        
+        返回:
+        - 处理结果字典
+        """
+        if not document_paths:
+            return {
+                "success": False,
+                "message": "没有要拼接的Word文档"
+            }
+        
+        try:
+            # 创建新文档作为主文档
+            master_doc = Document()
+            total_pages = 0
+            processed_files = []
+            
+            # 遍历每个文档并拼接
+            for i, doc_path in enumerate(document_paths):
+                if not os.path.exists(doc_path):
+                    logger.warning(f"Word文档不存在，已跳过: {doc_path}")
+                    processed_files.append(f"跳过: {os.path.basename(doc_path)} (文件不存在)")
+                    continue
+                
+                try:
+                    # 打开子文档
+                    sub_doc = Document(doc_path)
+                    filename = os.path.basename(doc_path)
+                    
+                    # 如果不是第一个文档且需要分页符，添加分页符
+                    if i > 0 and add_page_breaks:
+                        master_doc.add_page_break()
+                    
+                    # 如果需要显示文件标题，添加标题
+                    if show_file_titles:
+                        # 移除文件扩展名
+                        title_text = os.path.splitext(filename)[0]
+                        format_heading_standalone(master_doc, title_text, level=file_title_level, center=False)
+                    
+                    # 复制子文档的所有段落到主文档
+                    for paragraph in sub_doc.paragraphs:
+                        # 创建新段落
+                        new_para = master_doc.add_paragraph()
+                        
+                        # 复制段落格式
+                        new_para.style = paragraph.style
+                        new_para.alignment = paragraph.alignment
+                        
+                        # 复制段落内容
+                        for run in paragraph.runs:
+                            new_run = new_para.add_run(run.text)
+                            # 复制运行格式
+                            new_run.bold = run.bold
+                            new_run.italic = run.italic
+                            new_run.underline = run.underline
+                            new_run.font.size = run.font.size
+                            new_run.font.name = run.font.name
+                            if run.font.color.rgb:
+                                new_run.font.color.rgb = run.font.color.rgb
+                    
+                    # 复制子文档的所有表格到主文档
+                    for table in sub_doc.tables:
+                        # 创建新表格
+                        new_table = master_doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                        new_table.style = table.style
+                        
+                        # 复制表格内容
+                        for i, row in enumerate(table.rows):
+                            for j, cell in enumerate(row.cells):
+                                new_table.cell(i, j).text = cell.text
+                    
+                    # 复制子文档的所有图片到主文档
+                    for rel in sub_doc.part.rels.values():
+                        if "image" in rel.target_ref:
+                            # 这里需要更复杂的图片处理逻辑
+                            # 暂时跳过图片复制，因为需要处理关系引用
+                            pass
+                    
+                    # 估算页数（简单估算）
+                    estimated_pages = len(sub_doc.paragraphs) // 40 + 1
+                    total_pages += estimated_pages
+                    
+                    processed_files.append(f"Word: {filename}")
+                    logger.info(f"成功拼接Word文档: {filename}")
+                    
+                except Exception as e:
+                    logger.error(f"处理Word文档失败 {doc_path}: {e}")
+                    processed_files.append(f"失败: {os.path.basename(doc_path)}")
+            
+            # 保存拼接后的文档
+            master_doc.save(output_path)
+            
+            return {
+                "success": True,
+                "message": f"成功拼接 {len(processed_files)} 个Word文档",
+                "output_path": output_path,
+                "total_pages": total_pages,
+                "processed_files": processed_files
+            }
+            
+        except Exception as e:
+            logger.error(f"Word文档拼接失败: {e}")
+            return {
+                "success": False,
+                "message": f"拼接失败: {str(e)}"
+            }
 
 # 单例实例
 document_processor = DocumentProcessor() 

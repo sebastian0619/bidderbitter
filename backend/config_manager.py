@@ -181,11 +181,16 @@ class ConfigManager:
         config = self.get_ai_analysis_config()
         return config.get("business_fields", {})
     
-    def get_prompt_template(self, prompt_type: str) -> Dict[str, str]:
+    def get_prompt_template(self, prompt_type: str) -> str:
         """获取指定类型的prompt模板"""
         config = self.get_ai_analysis_config()
         prompts = config.get("prompts", {})
-        return prompts.get(prompt_type, {})
+        return prompts.get(prompt_type, "")
+    
+    def get_project_types(self) -> Dict[str, Dict[str, Any]]:
+        """获取项目类型分类配置"""
+        config = self.get_ai_analysis_config()
+        return config.get("project_types", {})
     
     def get_analysis_settings(self) -> Dict[str, Any]:
         """获取分析设置"""
@@ -210,35 +215,46 @@ class ConfigManager:
             formatted.append(f"- {code}: {info.get('name', '')} - {info.get('description', '')} (关键词: {keywords})")
         return "\n".join(formatted)
     
-    def build_prompt(self, prompt_type: str, **kwargs) -> tuple[str, str]:
+    def format_project_types_for_prompt(self) -> str:
+        """格式化项目类型信息用于prompt"""
+        project_types = self.get_project_types()
+        formatted = []
+        for code, info in project_types.items():
+            keywords = ", ".join(info.get("keywords", []))
+            formatted.append(f"- {info.get('name', '')}: {info.get('description', '')} (关键词: {keywords})")
+        return "\n".join(formatted)
+    
+    def build_prompt(self, prompt_type: str, variables: Dict[str, Any] = None) -> str:
         """构建完整的prompt"""
+        if variables is None:
+            variables = {}
+            
         template = self.get_prompt_template(prompt_type)
         if not template:
-            return "", ""
-        
-        system_prompt = template.get("system", "")
-        user_template = template.get("user_template", "")
+            logger.warning(f"未找到prompt模板: {prompt_type}")
+            return ""
         
         # 根据prompt类型添加特定的格式化数据
         if prompt_type == "document_classification":
-            kwargs["document_types"] = self.format_document_types_for_prompt()
+            variables["document_types"] = self.format_document_types_for_prompt()
         elif prompt_type == "business_field_classification":
-            kwargs["business_fields"] = self.format_business_fields_for_prompt()
+            variables["business_fields"] = self.format_business_fields_for_prompt()
+        elif prompt_type == "project_type_classification":
+            variables["project_types"] = self.format_project_types_for_prompt()
         
-        # 格式化用户prompt
+        # 格式化prompt
         try:
-            user_prompt = user_template.format(**kwargs)
+            formatted_prompt = template.format(**variables)
+            return formatted_prompt
         except KeyError as e:
             logger.warning(f"格式化prompt失败，缺少参数: {e}")
-            user_prompt = user_template
-        
-        return system_prompt, user_prompt
+            return template
     
     def get_confidence_threshold(self, analysis_type: str) -> float:
         """获取指定分析类型的置信度阈值"""
-        settings = self.get_analysis_settings()
-        thresholds = settings.get("confidence_thresholds", {})
-        return thresholds.get(analysis_type, 0.7)
+        config = self.get_ai_analysis_config()
+        settings = config.get("analysis_settings", {})
+        return settings.get("confidence_threshold", 0.7)
     
     def classify_business_field_by_keywords(self, text: str) -> Optional[tuple[str, str, float]]:
         """根据关键词分类业务领域"""

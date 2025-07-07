@@ -450,6 +450,134 @@ async def upload_document(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"上传文档失败: {str(e)}")
 
+@router.post("/sections/{section_id}/documents/batch")
+async def upload_documents_batch(
+    section_id: int,
+    files: List[UploadFile] = File(...),
+    orders: Optional[str] = Form(None),  # JSON数组，每个文件的顺序
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db)
+):
+    """批量上传文档到章节"""
+    try:
+        import json
+        
+        # 检查章节是否存在
+        section = db.query(ProjectSection).filter(ProjectSection.id == section_id).first()
+        if not section:
+            raise HTTPException(status_code=404, detail="章节不存在")
+        
+        uploaded_documents = []
+        failed_files = []
+        
+        # 解析顺序
+        orders_list = []
+        if orders:
+            try:
+                orders_list = json.loads(orders)
+            except:
+                orders_list = []
+        
+        # 创建项目专属目录
+        project_dir = os.path.join(UPLOAD_DIR, f"project_{section.project_id}")
+        os.makedirs(project_dir, exist_ok=True)
+        
+        for i, file in enumerate(files):
+            try:
+                if not file.filename:
+                    failed_files.append({
+                        "filename": "未知文件",
+                        "error": "文件名不能为空"
+                    })
+                    continue
+                
+                # 检查文件大小
+                content = await file.read()
+                file_size = len(content)
+                
+                if file_size > 200 * 1024 * 1024:  # 200MB限制
+                    failed_files.append({
+                        "filename": file.filename,
+                        "error": "文件大小超过限制(200MB)"
+                    })
+                    continue
+                
+                # 生成唯一文件名
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                unique_id = str(uuid.uuid4())[:8]
+                ext = os.path.splitext(file.filename)[1]
+                new_filename = f"{timestamp}_{i}_{unique_id}{ext}"
+                
+                file_path = os.path.join(project_dir, new_filename)
+                
+                # 保存文件
+                with open(file_path, "wb") as buffer:
+                    buffer.write(content)
+                
+                # 检测文件类型
+                file_ext = os.path.splitext(file.filename)[1].lower().replace('.', '')
+                file_type = file_ext
+                
+                # 确定顺序
+                order = orders_list[i] if i < len(orders_list) else i
+                
+                # 创建文档记录
+                document = SectionDocument(
+                    section_id=section_id,
+                    original_filename=file.filename,
+                    storage_path=file_path,
+                    file_type=file_type,
+                    mime_type=file.content_type,
+                    order=order,
+                    file_size=file_size,
+                    is_processed=False,
+                    processing_status="pending"
+                )
+                
+                db.add(document)
+                db.flush()  # 获取ID但不提交
+                
+                uploaded_documents.append({
+                    "id": document.id,
+                    "filename": file.filename,
+                    "file_size": file_size,
+                    "order": order
+                })
+                
+                # 添加后台任务处理文档
+                from database import DATABASE_URL
+                background_tasks.add_task(process_document_background, document.id, DATABASE_URL)
+                
+                logger.info(f"批量文档上传成功: {file.filename}")
+                
+            except Exception as file_err:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": str(file_err)
+                })
+                logger.error(f"上传文档失败 {file.filename}: {file_err}")
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"批量上传完成: {len(uploaded_documents)} 成功, {len(failed_files)} 失败",
+            "uploaded_documents": uploaded_documents,
+            "failed_files": failed_files,
+            "summary": {
+                "total": len(files),
+                "success": len(uploaded_documents),
+                "failed": len(failed_files)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"批量上传文档失败: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"批量上传文档失败: {str(e)}")
+
 @router.get("/sections/{section_id}/documents", response_model=List[DocumentResponse])
 async def get_documents(section_id: int, db: Session = Depends(get_db)):
     """获取章节的文档列表"""

@@ -118,7 +118,7 @@ async def upload_temporary_file(
     expires_hours: int = Form(24),  # 默认24小时过期
     db: Session = Depends(get_db)
 ):
-    """上传临时文件"""
+    """上传临时文件（单文件）"""
     try:
         # 检查文件大小
         content = await file.read()
@@ -293,52 +293,9 @@ async def upload_permanent_file(
             except:
                 tags_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
         
-        # AI智能分析和分类
-        ai_classification = None
-        final_category = category
+        # 确定初始分类（如果用户未指定，使用默认值）
+        final_category = category if category else "other"
         final_tags = tags_list.copy()
-        
-        if enable_ai_classification:
-            try:
-                from ai_service import ai_service
-                
-                # 进行智能文档分析
-                if enable_vision_analysis:
-                    analysis_result = await ai_service.smart_document_analysis(
-                        storage_path, 
-                        enable_vision=True
-                    )
-                else:
-                    analysis_result = await ai_service.smart_document_analysis(storage_path)
-                
-                if analysis_result.get("success"):
-                    if enable_vision_analysis:
-                        ai_classification = analysis_result["results"]["final_classification"]
-                    else:
-                        ai_classification = analysis_result.get("classification")
-                    
-                    # 如果用户没有指定分类，使用AI分类结果
-                    if not final_category and ai_classification:
-                        final_category = ai_classification.get("category", "other")
-                    
-                    # 提取AI建议的标签
-                    if ai_classification:
-                        tag_result = await ai_service.extract_document_tags(
-                            storage_path, 
-                            existing_tags=final_tags
-                        )
-                        if tag_result.get("success"):
-                            final_tags = tag_result.get("all_tags", final_tags)
-                    
-                logger.info(f"AI分类完成: {final_category}, 标签: {final_tags}")
-                
-            except Exception as ai_err:
-                logger.warning(f"AI分类失败，使用默认分类: {ai_err}")
-                if not final_category:
-                    final_category = "other"
-        else:
-            if not final_category:
-                final_category = "other"
         
         # 创建数据库记录
         db_file = ManagedFile(
@@ -369,21 +326,17 @@ async def upload_permanent_file(
             task_id = create_ai_task(db, db_file.id, "permanent_file")
             logger.info(f"📋 常驻文件AI任务已创建: 任务ID={task_id}, 文件ID={db_file.id}")
             
-            # 更新AI任务状态为成功（如果AI分析成功）
-            if ai_classification:
-                update_ai_task(db, task_id, "success", result={
-                    "ai_classification": ai_classification,
-                    "final_category": final_category,
-                    "final_tags": final_tags,
-                    "analysis_enabled": True
-                })
-            else:
-                # AI分析失败或无结果
-                update_ai_task(db, task_id, "completed", result={
-                    "final_category": final_category,
-                    "final_tags": final_tags,
-                    "analysis_enabled": False
-                })
+            # 启动异步后台AI分析
+            import asyncio
+            asyncio.create_task(
+                analyze_permanent_file_in_background(
+                    db_file.id,
+                    enable_vision_analysis,
+                    task_id,
+                    user_category=category  # 传递用户指定的分类
+                )
+            )
+            logger.info(f"🤖 已启动后台AI分析任务，文件ID={db_file.id}")
         
         logger.info(f"常驻文件上传成功: {display_name} -> {storage_path}")
         
@@ -395,7 +348,11 @@ async def upload_permanent_file(
             "file_size": db_file.file_size,
             "category": final_category,
             "tags": final_tags,
-            "ai_classification": ai_classification if enable_ai_classification else None,
+            "ai_analysis": {
+                "enabled": enable_ai_classification,
+                "status": "background_processing" if enable_ai_classification else "disabled",
+                "task_id": task_id
+            },
             "task_id": task_id  # 返回任务ID
         }
         
@@ -404,6 +361,320 @@ async def upload_permanent_file(
     except Exception as e:
         logger.error(f"上传常驻文件失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+
+@router.post("/upload/temporary/batch")
+async def upload_temporary_files_batch(
+    files: List[UploadFile] = File(...),
+    category: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),  # JSON字符串
+    expires_hours: int = Form(24),  # 默认24小时过期
+    db: Session = Depends(get_db)
+):
+    """批量上传临时文件"""
+    try:
+        uploaded_files = []
+        failed_files = []
+        
+        # 解析标签
+        tags_list = []
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+            except:
+                tags_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        
+        for i, file in enumerate(files):
+            try:
+                # 检查文件大小
+                content = await file.read()
+                file_size = len(content)
+                
+                if file_size > 100 * 1024 * 1024:  # 100MB限制
+                    failed_files.append({
+                        "filename": file.filename,
+                        "error": "文件大小超过限制(100MB)"
+                    })
+                    continue
+                
+                # 计算文件哈希
+                file_hash = hashlib.md5(content).hexdigest()
+                
+                # 检查是否已存在相同文件
+                existing_file = db.query(ManagedFile).filter(
+                    and_(
+                        ManagedFile.file_hash == file_hash,
+                        ManagedFile.is_archived == False
+                    )
+                ).first()
+                
+                if existing_file:
+                    # 更新访问时间
+                    existing_file.access_count += 1
+                    existing_file.last_accessed = datetime.now()
+                    uploaded_files.append({
+                        "file_id": existing_file.id,
+                        "filename": file.filename,
+                        "file_size": file_size,
+                        "is_duplicate": True,
+                        "message": "文件已存在"
+                    })
+                    continue
+                
+                # 生成存储路径
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_ext = os.path.splitext(file.filename)[1]
+                storage_filename = f"temp_{timestamp}_{i}_{file_hash[:8]}{file_ext}"
+                storage_path = os.path.join(TEMP_FILES_PATH, storage_filename)
+                
+                # 保存文件
+                with open(storage_path, "wb") as f:
+                    f.write(content)
+                
+                # 获取MIME类型
+                mime_type, _ = mimetypes.guess_type(file.filename)
+                if not mime_type:
+                    mime_type = "application/octet-stream"
+                
+                # 创建数据库记录
+                db_file = ManagedFile(
+                    original_filename=file.filename,
+                    display_name=file.filename,
+                    storage_path=storage_path,
+                    file_type=get_file_type_from_mime(mime_type),
+                    mime_type=mime_type,
+                    file_size=file_size,
+                    file_hash=file_hash,
+                    file_category="temporary_upload",
+                    category=category,
+                    tags=tags_list,
+                    description=description,
+                    expires_at=datetime.now() + timedelta(hours=expires_hours),
+                    access_count=1,
+                    last_accessed=datetime.now()
+                )
+                
+                db.add(db_file)
+                db.flush()  # 获取ID但不提交
+                
+                uploaded_files.append({
+                    "file_id": db_file.id,
+                    "filename": file.filename,
+                    "file_size": file_size,
+                    "is_duplicate": False,
+                    "expires_at": db_file.expires_at.isoformat()
+                })
+                
+                logger.info(f"批量临时文件上传成功: {file.filename}")
+                
+            except Exception as file_err:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": str(file_err)
+                })
+                logger.error(f"上传文件失败 {file.filename}: {file_err}")
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"批量上传完成: {len(uploaded_files)} 成功, {len(failed_files)} 失败",
+            "uploaded_files": uploaded_files,
+            "failed_files": failed_files,
+            "summary": {
+                "total": len(files),
+                "success": len(uploaded_files),
+                "failed": len(failed_files)
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"批量上传临时文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量上传失败: {str(e)}")
+
+@router.post("/upload/permanent/batch")
+async def upload_permanent_files_batch(
+    files: List[UploadFile] = File(...),
+    display_names: Optional[str] = Form(None),  # JSON数组，每个文件的显示名称
+    category: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),  # JSON字符串
+    keywords: Optional[str] = Form(None),
+    is_public: bool = Form(True),
+    enable_ai_classification: bool = Form(True),
+    enable_vision_analysis: bool = Form(True),
+    db: Session = Depends(get_db)
+):
+    """批量上传常驻文件"""
+    try:
+        uploaded_files = []
+        failed_files = []
+        ai_tasks = []
+        
+        # 解析显示名称
+        display_names_list = []
+        if display_names:
+            try:
+                display_names_list = json.loads(display_names)
+            except:
+                display_names_list = []
+        
+        # 解析标签
+        tags_list = []
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+            except:
+                tags_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+        
+        for i, file in enumerate(files):
+            try:
+                # 检查文件大小
+                content = await file.read()
+                file_size = len(content)
+                
+                if file_size > 200 * 1024 * 1024:  # 200MB限制
+                    failed_files.append({
+                        "filename": file.filename,
+                        "error": "文件大小超过限制(200MB)"
+                    })
+                    continue
+                
+                # 计算文件哈希
+                file_hash = hashlib.md5(content).hexdigest()
+                
+                # 检查是否已存在相同文件
+                existing_file = db.query(ManagedFile).filter(
+                    and_(
+                        ManagedFile.file_hash == file_hash,
+                        ManagedFile.file_category == "permanent",
+                        ManagedFile.is_archived == False
+                    )
+                ).first()
+                
+                if existing_file:
+                    existing_file.access_count += 1
+                    existing_file.last_accessed = datetime.now()
+                    uploaded_files.append({
+                        "file_id": existing_file.id,
+                        "filename": file.filename,
+                        "display_name": existing_file.display_name,
+                        "file_size": file_size,
+                        "is_duplicate": True,
+                        "message": "文件已存在"
+                    })
+                    continue
+                
+                # 确定显示名称
+                display_name = display_names_list[i] if i < len(display_names_list) else file.filename
+                
+                # 生成存储路径
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_ext = os.path.splitext(file.filename)[1]
+                storage_filename = f"perm_{timestamp}_{i}_{file_hash[:8]}{file_ext}"
+                storage_path = os.path.join(PERMANENT_FILES_PATH, storage_filename)
+                
+                # 保存文件
+                with open(storage_path, "wb") as f:
+                    f.write(content)
+                
+                # 获取MIME类型
+                mime_type, _ = mimetypes.guess_type(file.filename)
+                if not mime_type:
+                    mime_type = "application/octet-stream"
+                
+                # 确定初始分类
+                final_category = category if category else "other"
+                
+                # 创建数据库记录
+                db_file = ManagedFile(
+                    original_filename=file.filename,
+                    display_name=display_name,
+                    storage_path=storage_path,
+                    file_type=get_file_type_from_mime(mime_type),
+                    mime_type=mime_type,
+                    file_size=file_size,
+                    file_hash=file_hash,
+                    file_category="permanent",
+                    category=final_category,
+                    tags=tags_list.copy(),
+                    description=description,
+                    keywords=keywords,
+                    is_public=is_public,
+                    access_count=0,
+                    last_accessed=datetime.now()
+                )
+                
+                db.add(db_file)
+                db.flush()  # 获取ID但不提交
+                
+                # 创建AI分析任务
+                task_id = None
+                if enable_ai_classification:
+                    task_id = create_ai_task(db, db_file.id, "permanent_file")
+                    ai_tasks.append({
+                        "file_id": db_file.id,
+                        "task_id": task_id,
+                        "filename": file.filename
+                    })
+                
+                uploaded_files.append({
+                    "file_id": db_file.id,
+                    "filename": file.filename,
+                    "display_name": display_name,
+                    "file_size": file_size,
+                    "category": final_category,
+                    "is_duplicate": False,
+                    "task_id": task_id
+                })
+                
+                logger.info(f"批量常驻文件上传成功: {display_name}")
+                
+            except Exception as file_err:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": str(file_err)
+                })
+                logger.error(f"上传文件失败 {file.filename}: {file_err}")
+        
+        db.commit()
+        
+        # 启动异步AI分析任务
+        if enable_ai_classification and ai_tasks:
+            import asyncio
+            for task in ai_tasks:
+                asyncio.create_task(
+                    analyze_permanent_file_in_background(
+                        task["file_id"],
+                        enable_vision_analysis,
+                        task["task_id"],
+                        user_category=category
+                    )
+                )
+            logger.info(f"🤖 已启动 {len(ai_tasks)} 个后台AI分析任务")
+        
+        return {
+            "success": True,
+            "message": f"批量上传完成: {len(uploaded_files)} 成功, {len(failed_files)} 失败",
+            "uploaded_files": uploaded_files,
+            "failed_files": failed_files,
+            "ai_analysis": {
+                "enabled": enable_ai_classification,
+                "tasks_created": len(ai_tasks),
+                "status": "background_processing" if ai_tasks else "disabled"
+            },
+            "summary": {
+                "total": len(files),
+                "success": len(uploaded_files),
+                "failed": len(failed_files)
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"批量上传常驻文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量上传失败: {str(e)}")
 
 @router.get("/list")
 async def list_files(
@@ -647,6 +918,11 @@ async def get_category_suggestions():
                     "code": "lawyer_certificate",
                     "name": "律师证",
                     "description": "个人律师执业证书，包含律师姓名、执业证号等信息"
+                },
+                {
+                    "code": "financial_data",
+                    "name": "财务数据",
+                    "description": "审计报告、财务报表、财务分析等财务相关文档"
                 },
                 {
                     "code": "other",
@@ -1344,6 +1620,588 @@ async def get_related_lawyer_certificate(file_id: int, db: Session = Depends(get
     except Exception as e:
         logger.error(f"查看文件关联律师证失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"查看失败: {str(e)}")
+
+@router.get("/task/{task_id}/status")
+async def get_ai_task_status(task_id: int, db: Session = Depends(get_db)):
+    """查询AI任务状态"""
+    try:
+        task = db.query(AITask).filter(AITask.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        
+        # 获取关联的文件信息
+        file_record = None
+        if task.file_type == "permanent_file":
+            file_record = db.query(ManagedFile).filter(ManagedFile.id == task.file_id).first()
+        
+        return {
+            "success": True,
+            "task_id": task.id,
+            "status": task.status,
+            "file_id": task.file_id,
+            "file_type": task.file_type,
+            "result": task.result_snapshot,
+            "error_message": task.error_message,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+            "file_info": {
+                "display_name": file_record.display_name if file_record else None,
+                "category": file_record.category if file_record else None,
+                "processing_status": file_record.processing_status if file_record else None
+            } if file_record else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"查询AI任务状态失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
+
+@router.post("/{file_id}/reanalyze")
+async def reanalyze_permanent_file(
+    file_id: int,
+    enable_vision_analysis: bool = Form(True),
+    force_reclassify: bool = Form(True),
+    db: Session = Depends(get_db)
+):
+    """重新分析常驻文件（智能分类 + 专业记录创建）"""
+    try:
+        # 检查文件是否存在
+        file_record = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        
+        if file_record.file_category != "permanent":
+            raise HTTPException(status_code=400, detail="只能重新分析常驻文件")
+        
+        # 创建新的AI任务
+        task_id = create_ai_task(db, file_id, "permanent_file")
+        logger.info(f"📋 重新分析任务已创建: 任务ID={task_id}, 文件ID={file_id}")
+        
+        # 启动异步后台AI分析
+        import asyncio
+        asyncio.create_task(
+            analyze_permanent_file_in_background(
+                file_id,
+                enable_vision_analysis,
+                task_id,
+                user_category=None  # 让AI重新智能分类
+            )
+        )
+        logger.info(f"🤖 已启动重新分析任务，文件ID={file_id}")
+        
+        return {
+            "success": True,
+            "message": "重新分析任务已启动",
+            "task_id": task_id,
+            "file_id": file_id,
+            "analysis_options": {
+                "vision_enabled": enable_vision_analysis,
+                "force_reclassify": force_reclassify
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"重新分析文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"重新分析失败: {str(e)}")
+
+async def analyze_permanent_file_in_background(file_id: int, enable_vision_analysis: bool, task_id: int = None, user_category: str = None):
+    """后台异步分析常驻文件"""
+    try:
+        from database import get_db
+        from ai_service import ai_service
+        
+        db = next(get_db())
+        
+        if not ai_service.enable_ai:
+            logger.warning("AI服务未启用，跳过后台分析")
+            if task_id:
+                update_ai_task(db, task_id, "completed", result={
+                    "ai_analysis": False,
+                    "reason": "AI服务未启用"
+                })
+            db.close()
+            return
+        
+        logger.info(f"🤖 开始后台AI分析，文件ID={file_id}")
+        
+        try:
+            # 获取文件记录
+            file_record = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+            
+            if not file_record or not file_record.storage_path:
+                logger.warning(f"⚠️ 文件记录或文件路径不存在: {file_id}")
+                if task_id:
+                    update_ai_task(db, task_id, "failed", result={
+                        "error": "文件记录或文件路径不存在"
+                    })
+                db.close()
+                return
+            
+            if not os.path.exists(file_record.storage_path):
+                logger.warning(f"⚠️ 物理文件不存在: {file_record.storage_path}")
+                if task_id:
+                    update_ai_task(db, task_id, "failed", result={
+                        "error": "物理文件不存在"
+                    })
+                db.close()
+                return
+            
+            # 更新AI任务状态为正在处理
+            if task_id:
+                update_ai_task(db, task_id, "processing")
+            
+            # 更新文件处理状态
+            file_record.processing_status = "processing"
+            db.commit()
+            
+            logger.info(f"🔍 开始分析文件: {file_record.display_name}")
+            
+            # 进行AI智能分析
+            if enable_vision_analysis:
+                analysis_result = await ai_service.smart_document_analysis(
+                    file_record.storage_path, 
+                    enable_vision=True,
+                    enable_ocr=True
+                )
+            else:
+                analysis_result = await ai_service.smart_document_analysis(
+                    file_record.storage_path,
+                    enable_ocr=True
+                )
+            
+            if analysis_result.get("success"):
+                # 提取分类信息
+                if enable_vision_analysis:
+                    ai_classification = analysis_result["results"]["final_classification"]
+                else:
+                    ai_classification = analysis_result.get("classification")
+                
+                # 更新文件分类（仅当用户未指定分类时）
+                if not user_category and ai_classification:
+                    suggested_category = ai_classification.get("category", "other")
+                    if suggested_category and suggested_category != "other":
+                        file_record.category = suggested_category
+                        logger.info(f"📋 AI建议分类: {suggested_category}")
+                
+                # 提取AI建议的标签
+                if ai_classification:
+                    try:
+                        tag_result = await ai_service.extract_document_tags(
+                            file_record.storage_path, 
+                            existing_tags=file_record.tags or []
+                        )
+                        if tag_result.get("success"):
+                            ai_tags = tag_result.get("suggested_tags", [])
+                            if ai_tags:
+                                # 合并现有标签和AI建议标签
+                                existing_tags = set(file_record.tags or [])
+                                new_tags = existing_tags.union(set(ai_tags))
+                                file_record.tags = list(new_tags)
+                                logger.info(f"🏷️ AI建议标签: {ai_tags}")
+                    except Exception as tag_err:
+                        logger.warning(f"提取标签失败: {tag_err}")
+                
+                # 保存AI分析结果到处理结果中
+                if not file_record.processing_result:
+                    file_record.processing_result = {}
+                file_record.processing_result["ai_analysis"] = ai_classification
+                file_record.processing_result["analysis_timestamp"] = datetime.now().isoformat()
+                file_record.processing_result["vision_enabled"] = enable_vision_analysis
+                
+                # 智能分类和专业记录创建
+                professional_record_created = None
+                if ai_classification:
+                    try:
+                        professional_record_created = await create_professional_record_from_file(
+                            db, file_record, ai_classification, analysis_result
+                        )
+                        if professional_record_created:
+                            logger.info(f"🎯 自动创建专业记录成功: {professional_record_created}")
+                    except Exception as prof_err:
+                        logger.warning(f"自动创建专业记录失败: {prof_err}")
+                        professional_record_created = {"error": str(prof_err)}
+                
+                # 更新处理状态
+                file_record.processing_status = "completed"
+                file_record.is_processed = True
+                
+                # 更新AI任务状态为成功
+                if task_id:
+                    update_ai_task(db, task_id, "success", result={
+                        "ai_classification": ai_classification,
+                        "category": file_record.category,
+                        "tags": file_record.tags,
+                        "analysis_enabled": True,
+                        "vision_enabled": enable_vision_analysis,
+                        "professional_record": professional_record_created
+                    })
+                
+                logger.info(f"✅ 文件AI分析完成: {file_record.display_name}")
+                
+            else:
+                # AI分析失败
+                error_msg = analysis_result.get("error", "AI分析失败")
+                logger.warning(f"⚠️ AI分析失败: {error_msg}")
+                
+                file_record.processing_status = "failed"
+                if not file_record.processing_result:
+                    file_record.processing_result = {}
+                file_record.processing_result["error"] = error_msg
+                file_record.processing_result["analysis_timestamp"] = datetime.now().isoformat()
+                
+                if task_id:
+                    update_ai_task(db, task_id, "failed", result={
+                        "error": error_msg,
+                        "analysis_enabled": False
+                    })
+            
+            db.commit()
+            
+        except Exception as process_err:
+            logger.error(f"❌ 后台AI分析异常: {process_err}")
+            
+            # 更新处理状态
+            try:
+                file_record = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+                if file_record:
+                    file_record.processing_status = "failed"
+                    if not file_record.processing_result:
+                        file_record.processing_result = {}
+                    file_record.processing_result["error"] = str(process_err)
+                    file_record.processing_result["analysis_timestamp"] = datetime.now().isoformat()
+                
+                if task_id:
+                    update_ai_task(db, task_id, "failed", result={
+                        "error": str(process_err)
+                    })
+                
+                db.commit()
+            except Exception as update_err:
+                logger.error(f"更新失败状态出错: {update_err}")
+        
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"❌ 后台AI分析失败: {e}")
+        import traceback
+        logger.error(f"异常详情: {traceback.format_exc()}")
+
+async def create_professional_record_from_file(db, file_record, ai_classification, analysis_result):
+    """根据AI分类结果创建对应的专业管理记录"""
+    try:
+        # 智能分类识别 - 优先使用category字段，然后使用type字段，最后使用document_type字段
+        ai_category = ai_classification.get("category", "other")
+        ai_type = ai_classification.get("type", "")
+        document_type = ai_classification.get("document_type", "")
+        
+        # 基于AI识别的类型进行智能分类映射
+        if ai_category == "other":
+            # 优先使用document_type，然后使用type
+            if document_type:
+                ai_category = classify_document_by_ai_type(document_type, ai_classification)
+            elif ai_type:
+                ai_category = classify_document_by_ai_type(ai_type, ai_classification)
+        
+        professional_record = None
+        
+        logger.info(f"🎯 开始创建专业记录，AI类型: {ai_type}, 最终分类: {ai_category}")
+        
+        if ai_category == "lawyer_certificate":
+            # 律师证分析和创建
+            professional_record = await create_lawyer_certificate_from_analysis(
+                db, file_record, ai_classification, analysis_result
+            )
+        elif ai_category == "performance_contract":
+            # 业绩合同分析和创建
+            professional_record = await create_performance_from_analysis(
+                db, file_record, ai_classification, analysis_result
+            )
+        elif ai_category == "award_certificate":
+            # 奖项证书分析和创建
+            professional_record = await create_award_from_analysis(
+                db, file_record, ai_classification, analysis_result
+            )
+        elif ai_category == "financial_data":
+            # 财务数据分析（暂不创建具体记录，但记录分类）
+            logger.info(f"💰 识别为财务数据: {file_record.display_name}")
+            professional_record = {
+                "type": "financial_data",
+                "category": "财务数据",
+                "description": "已识别为财务相关文档，暂存为常驻文件",
+                "ai_type": ai_type
+            }
+            # 更新文件分类
+            file_record.category = "financial_data"
+        else:
+            logger.info(f"📋 其他类型文档，AI类型: {ai_type}, 分类: {ai_category}")
+            professional_record = {
+                "type": "other",
+                "category": ai_category,
+                "ai_type": ai_type,
+                "description": f"AI识别类型: {ai_type}, 分类为: {ai_category}"
+            }
+        
+        return professional_record
+        
+    except Exception as e:
+        logger.error(f"创建专业记录失败: {str(e)}")
+        return {"error": str(e)}
+
+def classify_document_by_ai_type(ai_type, ai_classification):
+    """根据AI识别的类型进行智能分类映射"""
+    try:
+        ai_type_lower = ai_type.lower()
+        summary = ai_classification.get("summary", "").lower()
+        entities = ai_classification.get("entities", {})
+        
+        # 优先检查AI返回的type字段
+        if ai_type and ai_type != "unknown":
+            # 基于AI返回的type进行智能映射
+            if ai_type in ["报告", "审计报告", "财务报告", "audit_report", "financial_report"]:
+                return "financial_data"
+            elif ai_type in ["合同", "协议", "contract", "agreement"]:
+                return "performance_contract"
+            elif ai_type in ["证书", "律师证", "执业证", "certificate", "lawyer_certificate"]:
+                return "lawyer_certificate"
+            elif ai_type in ["奖项", "奖状", "award", "prize", "honor"]:
+                return "award_certificate"
+        
+        # 基于关键词的备用分类逻辑
+        # 财务数据相关（优先级最高）
+        if any(keyword in ai_type_lower for keyword in ["报告", "审计", "财务", "会计", "financial", "audit", "report"]):
+            return "financial_data"
+        
+        # 律师证相关
+        if any(keyword in ai_type_lower for keyword in ["律师证", "执业证", "lawyer", "certificate"]):
+            return "lawyer_certificate"
+        
+        # 业绩合同相关  
+        if any(keyword in ai_type_lower for keyword in ["合同", "协议", "contract", "agreement"]):
+            return "performance_contract"
+        
+        # 奖项证书相关
+        if any(keyword in ai_type_lower for keyword in ["奖项", "证书", "award", "prize", "honor"]):
+            return "award_certificate"
+        
+        # 基于摘要内容进一步判断
+        if "审计" in summary or "财务" in summary or "会计" in summary:
+            return "financial_data"
+            
+        if "合同" in summary or "协议" in summary:
+            return "performance_contract"
+            
+        if "奖" in summary or "证书" in summary:
+            return "award_certificate"
+            
+        if "律师" in summary or "执业" in summary:
+            return "lawyer_certificate"
+        
+        return "other"
+        
+    except Exception as e:
+        logger.error(f"AI类型分类映射失败: {str(e)}")
+        return "other"
+
+async def create_lawyer_certificate_from_analysis(db, file_record, ai_classification, analysis_result):
+    """从AI分析结果创建律师证记录"""
+    try:
+        from models import LawyerCertificate, LawyerCertificateFile
+        
+        # 提取律师证信息
+        lawyer_info = ai_classification.get("lawyer_info", {})
+        key_entities = ai_classification.get("key_entities", {})
+        
+        extracted_info = {
+            "lawyer_name": lawyer_info.get("name") or key_entities.get("holder_name"),
+            "certificate_number": lawyer_info.get("certificate_number") or key_entities.get("certificate_number"),
+            "law_firm": lawyer_info.get("law_firm") or ai_classification.get("description", ""),
+            "issuing_authority": lawyer_info.get("issuing_authority") or key_entities.get("issuer"),
+            "age": lawyer_info.get("age"),
+            "id_number": lawyer_info.get("id_number"),
+            "position": "合伙人" if "合伙人" in str(ai_classification.get("description", "")) else "律师"
+        }
+        
+        # 检查必要字段
+        if not (extracted_info.get("lawyer_name") and extracted_info.get("certificate_number")):
+            logger.warning("律师证信息不完整，跳过创建记录")
+            return {"error": "律师证信息不完整"}
+        
+        # 检查是否已存在
+        existing = db.query(LawyerCertificate).filter(
+            LawyerCertificate.certificate_number == extracted_info["certificate_number"]
+        ).first()
+        
+        if existing:
+            # 关联到现有记录
+            cert_file = LawyerCertificateFile(
+                certificate_id=existing.id,
+                file_path=file_record.storage_path,
+                file_type="auto_detected_from_permanent_file",
+                file_name=file_record.original_filename,
+                file_size=file_record.file_size
+            )
+            db.add(cert_file)
+            
+            logger.info(f"👥 律师证已存在，添加文件关联: {existing.lawyer_name}")
+            return {
+                "type": "lawyer_certificate",
+                "action": "linked_to_existing",
+                "certificate_id": existing.id,
+                "lawyer_name": existing.lawyer_name
+            }
+        else:
+            # 创建新记录
+            cert = LawyerCertificate(
+                lawyer_name=extracted_info["lawyer_name"],
+                certificate_number=extracted_info["certificate_number"],
+                law_firm=extracted_info["law_firm"] or "",
+                issuing_authority=extracted_info.get("issuing_authority"),
+                age=extracted_info.get("age"),
+                id_number=extracted_info.get("id_number"),
+                position=extracted_info.get("position", "律师"),
+                position_tags=[extracted_info.get("position", "律师")],
+                source_document=file_record.original_filename,
+                ai_analysis=analysis_result,
+                confidence_score=ai_classification.get("confidence", 0.0),
+                extracted_text=analysis_result.get('text_extraction_result', {}).get('text', ''),
+                is_verified=False,
+                is_manual_input=False
+            )
+            
+            db.add(cert)
+            db.flush()  # 获取ID
+            
+            # 创建文件关联
+            cert_file = LawyerCertificateFile(
+                certificate_id=cert.id,
+                file_path=file_record.storage_path,
+                file_type="auto_detected_from_permanent_file",
+                file_name=file_record.original_filename,
+                file_size=file_record.file_size
+            )
+            
+            db.add(cert_file)
+            
+            logger.info(f"✅ 自动创建律师证记录: {cert.lawyer_name} ({cert.certificate_number})")
+            return {
+                "type": "lawyer_certificate",
+                "action": "created_new",
+                "certificate_id": cert.id,
+                "lawyer_name": cert.lawyer_name,
+                "certificate_number": cert.certificate_number
+            }
+        
+    except Exception as e:
+        logger.error(f"创建律师证记录失败: {str(e)}")
+        return {"error": str(e)}
+
+async def create_performance_from_analysis(db, file_record, ai_classification, analysis_result):
+    """从AI分析结果创建业绩记录"""
+    try:
+        from models import Performance, PerformanceFile
+        
+        # 提取业绩信息
+        performance_info = ai_classification.get("performance_info", {})
+        key_entities = ai_classification.get("key_entities", {})
+        
+        extracted_info = {
+            "project_name": performance_info.get("project_name") or key_entities.get("project_name") or file_record.display_name,
+            "client_name": performance_info.get("client_name") or key_entities.get("client_name") or "待完善",
+            "business_field": performance_info.get("business_field") or ai_classification.get("business_field", "待AI分析"),
+            "description": ai_classification.get("description", f"从文件 '{file_record.original_filename}' 自动识别")
+        }
+        
+        # 创建业绩记录
+        performance = Performance(
+            project_name=extracted_info["project_name"],
+            client_name=extracted_info["client_name"],
+            project_type="重大个案(非诉)",
+            business_field=extracted_info["business_field"],
+            year=datetime.now().year,
+            is_manual_input=False,
+            is_verified=False,
+            confidence_score=ai_classification.get("confidence", 0.0),
+            description=extracted_info["description"],
+            source_document=file_record.storage_path,
+            ai_analysis_status="completed",
+            extracted_text=analysis_result.get('text_extraction_result', {}).get('text', '')
+        )
+        
+        db.add(performance)
+        db.flush()  # 获取ID
+        
+        # 创建文件关联
+        perf_file = PerformanceFile(
+            performance_id=performance.id,
+            file_path=file_record.storage_path,
+            file_type="auto_detected_from_permanent_file",
+            file_name=file_record.original_filename,
+            file_size=file_record.file_size
+        )
+        
+        db.add(perf_file)
+        
+        logger.info(f"✅ 自动创建业绩记录: {performance.project_name}")
+        return {
+            "type": "performance_contract",
+            "action": "created_new",
+            "performance_id": performance.id,
+            "project_name": performance.project_name,
+            "client_name": performance.client_name
+        }
+        
+    except Exception as e:
+        logger.error(f"创建业绩记录失败: {str(e)}")
+        return {"error": str(e)}
+
+async def create_award_from_analysis(db, file_record, ai_classification, analysis_result):
+    """从AI分析结果创建奖项记录"""
+    try:
+        from models import Award
+        
+        # 提取奖项信息
+        award_info = ai_classification.get("award_info", {})
+        key_entities = ai_classification.get("key_entities", {})
+        
+        extracted_info = {
+            "title": award_info.get("title") or key_entities.get("title") or file_record.display_name,
+            "brand": award_info.get("brand") or key_entities.get("brand") or "待AI分析",
+            "year": award_info.get("year") or datetime.now().year,
+            "business_type": award_info.get("business_type") or ai_classification.get("business_field", "待AI分析"),
+            "description": ai_classification.get("description", f"从文件 '{file_record.original_filename}' 自动识别")
+        }
+        
+        # 创建奖项记录
+        award = Award(
+            title=extracted_info["title"],
+            brand=extracted_info["brand"],
+            year=extracted_info["year"],
+            business_type=extracted_info["business_type"],
+            description=extracted_info["description"],
+            is_verified=False,
+            source_document=file_record.storage_path,
+            confidence_score=ai_classification.get("confidence", 0.0)
+        )
+        
+        db.add(award)
+        db.flush()  # 获取ID
+        
+        logger.info(f"✅ 自动创建奖项记录: {award.title}")
+        return {
+            "type": "award_certificate",
+            "action": "created_new",
+            "award_id": award.id,
+            "title": award.title,
+            "brand": award.brand
+        }
+        
+    except Exception as e:
+        logger.error(f"创建奖项记录失败: {str(e)}")
+        return {"error": str(e)}
 
 def setup_router(app):
     app.include_router(router) 

@@ -43,7 +43,7 @@ try:
     import search_api
     import ai_tools_api
     import file_management_api
-    from document_processor import docling_processor
+    from document_processor import docling_processor, format_heading_standalone
     IMPORT_SUCCESS = True
 except ImportError as e:
     logging.error(f"导入API模块失败: {str(e)}")
@@ -1488,6 +1488,83 @@ async def convert_files_to_word(
                     )
                     processed_files.append(f"图片: {filename}{' (图片暂不支持水印)' if file_needs_watermark else ''}")
                     results.append(result)
+                elif file_ext in ['.docx', '.doc']:
+                    # Word文件处理 - 直接拼接，不调用docling
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True
+                    
+                    # 使用DocumentProcessor的Word拼接功能
+                    from document_processor import DocumentProcessor
+                    
+                    # 创建临时输出路径用于单个Word文件处理
+                    temp_output_path = os.path.join(temp_dir, f"temp_word_{i}.docx")
+                    
+                    # 对于单个Word文件，我们直接复制内容到主文档
+                    try:
+                        # 打开Word文档
+                        word_doc = Document(file_path)
+                        
+                        # 如果不是第一个文档且需要分页符，添加分页符
+                        if i > 0 and file_needs_page_break:
+                            doc.add_page_break()
+                        
+                        # 如果需要显示文件标题，添加标题
+                        if show_file_titles:
+                            # 移除文件扩展名
+                            title_text = os.path.splitext(filename)[0]
+                            format_heading_standalone(doc, title_text, level=file_title_level, center=False)
+                        
+                        # 复制Word文档的所有段落到主文档
+                        for paragraph in word_doc.paragraphs:
+                            # 创建新段落
+                            new_para = doc.add_paragraph()
+                            
+                            # 复制段落格式
+                            new_para.style = paragraph.style
+                            new_para.alignment = paragraph.alignment
+                            
+                            # 复制段落内容
+                            for run in paragraph.runs:
+                                new_run = new_para.add_run(run.text)
+                                # 复制运行格式
+                                new_run.bold = run.bold
+                                new_run.italic = run.italic
+                                new_run.underline = run.underline
+                                new_run.font.size = run.font.size
+                                new_run.font.name = run.font.name
+                                if run.font.color.rgb:
+                                    new_run.font.color.rgb = run.font.color.rgb
+                        
+                        # 复制Word文档的所有表格到主文档
+                        for table in word_doc.tables:
+                            # 创建新表格
+                            new_table = doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                            new_table.style = table.style
+                            
+                            # 复制表格内容
+                            for row_idx, row in enumerate(table.rows):
+                                for col_idx, cell in enumerate(row.cells):
+                                    new_table.cell(row_idx, col_idx).text = cell.text
+                        
+                        # 估算页数（简单估算）
+                        estimated_pages = len(word_doc.paragraphs) // 40 + 1
+                        
+                        processed_files.append(f"Word: {filename}")
+                        results.append({
+                            "success": True,
+                            "message": f"成功处理Word文档: {filename}",
+                            "pages": estimated_pages
+                        })
+                        
+                        logger.info(f"成功处理Word文档: {filename}")
+                        
+                    except Exception as word_error:
+                        logger.error(f"处理Word文档失败 {filename}: {word_error}")
+                        processed_files.append(f"失败: {filename}")
+                        results.append({
+                            "success": False,
+                            "message": f"Word文档处理失败: {str(word_error)}"
+                        })
                 else:
                     processed_files.append(f"不支持的格式: {filename}")
                     results.append({

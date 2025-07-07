@@ -8,7 +8,7 @@
         </div>
         <div class="hero-text">
           <h1>文件转Word工具</h1>
-          <p>智能转换PDF和图片为Word文档，支持水印、标题配置等高级功能</p>
+          <p>智能转换PDF和图片为Word文档，支持Word文件拼接，支持水印、标题配置等高级功能</p>
         </div>
       </div>
       <div class="hero-stats">
@@ -274,16 +274,20 @@
                 </div>
                 <div class="header-text">
                   <h3>文件上传</h3>
-                  <p>支持PDF、图片格式，最大{{ MAX_UPLOAD_SIZE_MB }}MB</p>
+                  <p>支持PDF、Word、图片格式，最大{{ MAX_UPLOAD_SIZE_MB }}MB</p>
+                  <p class="feature-hint">
+                    <el-icon><InfoFilled /></el-icon>
+                    PDF文件将自动检测类型：扫描件使用OCR提取文本，非扫描件保持原始格式转换为图片
+                  </p>
                 </div>
               </div>
               <div class="card-content">
             <FileUpload
               ref="fileUploadRef"
-              :allowed-types="['pdf', 'image']"
+              :allowed-types="['pdf', 'image', 'word']"
               :multiple="true"
               :max-size="MAX_UPLOAD_SIZE"
-              accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff"
+              accept=".pdf,.jpg,.jpeg,.png,.bmp,.gif,.tiff,.doc,.docx"
               @upload="handleFilesSelected"
               @change="handleFileChange"
             />
@@ -1338,16 +1342,35 @@ watch(() => form.enableWatermark, (newValue) => {
       flex: 1;
       
       h3 {
-        margin: 0 0 2px 0;
-    font-size: 16px;
-    font-weight: 600;
+        margin: 0 0 4px 0;
         color: var(--el-text-color-primary);
+        font-size: 16px;
+        font-weight: 600;
       }
       
       p {
         margin: 0;
-        font-size: 12px;
         color: var(--el-text-color-regular);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      
+      .feature-hint {
+        margin-top: 8px;
+        padding: 8px 12px;
+        background: var(--el-color-primary-light-9);
+        border: 1px solid var(--el-color-primary-light-7);
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--el-color-primary);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        
+        .el-icon {
+          font-size: 14px;
+          flex-shrink: 0;
+        }
       }
     }
     
@@ -1813,16 +1836,17 @@ watch(() => form.enableWatermark, (newValue) => {
         flex: 1;
         
         h3 {
-          margin: 0 0 2px 0;
+          margin: 0 0 4px 0;
+          color: var(--el-text-color-primary);
           font-size: 16px;
           font-weight: 600;
-          color: var(--el-text-color-primary);
         }
         
         p {
           margin: 0;
-          font-size: 12px;
           color: var(--el-text-color-regular);
+          font-size: 13px;
+          line-height: 1.4;
         }
       }
     }
@@ -1888,7 +1912,7 @@ watch(() => form.enableWatermark, (newValue) => {
 
 .result-success {
   text-align: center;
-  padding: 16px;
+      padding: 16px;
   width: 100%;
   
   .success-icon {

@@ -339,7 +339,7 @@ async def analyze_performances_in_background(performance_ids: List[int], enable_
                 
                 if ai_result and ai_result.get("success"):
                     # 提取业绩信息
-                    extracted_info = _extract_performance_info(ai_result)
+                    extracted_info = await _extract_performance_info(ai_result)
                     
                     # 更新业绩记录（只在AI提取到有效信息时更新）
                     updated_fields = []
@@ -426,8 +426,8 @@ async def analyze_performances_in_background(performance_ids: List[int], enable_
     except Exception as e:
         logger.error(f"❌ 后台AI分析任务失败: {str(e)}")
 
-def _extract_performance_info(ai_result):
-    """从AI分析结果中提取业绩信息并生成规范化项目名称"""
+async def _extract_performance_info(ai_result):
+    """从AI分析结果中提取业绩信息并使用AI智能提取所有信息"""
     extracted_info = {}
     
     if not ai_result:
@@ -457,28 +457,6 @@ def _extract_performance_info(ai_result):
     elif ai_result.get('ocr_result', {}).get('text'):
         ocr_text = ai_result['ocr_result']['text']
     
-    # 从AI文本分析结果中提取结构化信息
-    ai_text_analysis = ai_result.get("results", {}).get("ai_text_analysis", {})
-    if ai_text_analysis and ai_text_analysis.get("key_entities"):
-        entities = ai_text_analysis["key_entities"]
-        if entities.get("client_name"):
-            extracted_info['client_name'] = entities["client_name"]
-        if entities.get("amount"):
-            try:
-                amount_str = str(entities["amount"]).replace(',', '').replace('，', '')
-                extracted_info['contract_amount'] = float(amount_str)
-            except:
-                pass
-        if entities.get("date_issued"):
-            # 尝试从日期中提取年份
-            try:
-                import re
-                year_match = re.search(r'(\d{4})', str(entities["date_issued"]))
-                if year_match:
-                    extracted_info['year'] = int(year_match.group(1))
-            except:
-                pass
-    
     # 从最终分类结果中提取信息
     final_classification = ai_result.get("results", {}).get("final_classification", {})
     if final_classification:
@@ -487,215 +465,231 @@ def _extract_performance_info(ai_result):
         if final_classification.get("description"):
             extracted_info['description'] = final_classification["description"]
     
-    # 合并所有文本内容进行关键词匹配
-    full_text = f"{text_content}\n{ocr_text}".lower()
+    # 合并所有文本内容
+    full_text = f"{text_content}\n{ocr_text}".strip()
     
-    if not full_text.strip():
-        logger.warning("合并后的文本内容为空，无法进行关键词匹配")
+    if not full_text:
+        logger.warning("合并后的文本内容为空，无法进行分析")
         return extracted_info
     
     logger.info(f"合并后的文本长度: {len(full_text)} 字符")
     
-    # 使用关键词匹配提取信息（作为备用方案）
-    import re
-    
-    # 提取客户名称
-    client_name = ""
-    if not extracted_info.get('client_name'):
-        client_patterns = [
-            r'甲方[：:]\s*([^\n\r，。；]+)',
-            r'委托方[：:]\s*([^\n\r，。；]+)', 
-            r'客户[：:]\s*([^\n\r，。；]+)',
-            r'委托人[：:]\s*([^\n\r，。；]+)',
-            r'当事人[：:]\s*([^\n\r，。；]+)',
-            r'申请人[：:]\s*([^\n\r，。；]+)'
-        ]
-        for pattern in client_patterns:
-            match = re.search(pattern, full_text)
-            if match:
-                client_name = match.group(1).strip()
-                # 清理客户名称，移除多余内容
-                client_name = re.sub(r'（.*?）|\(.*?\)', '', client_name)  # 移除括号内容
-                client_name = re.sub(r'法定代表人.*|统一社会信用代码.*|地址.*', '', client_name)  # 移除无关信息
-                client_name = client_name.strip()
-                if len(client_name) > 2 and len(client_name) < 50:  # 合理的长度范围
-                    extracted_info['client_name'] = client_name
-                    logger.info(f"提取到客户名称: {client_name}")
-                    break
-    
-    # 提取金额
-    if not extracted_info.get('contract_amount'):
-        amount_patterns = [
-            r'合同金额[：:]?\s*([0-9,，.]+)\s*万?元',
-            r'总金额[：:]?\s*([0-9,，.]+)\s*万?元',
-            r'费用[：:]?\s*([0-9,，.]+)\s*万?元',
-            r'律师费[：:]?\s*([0-9,，.]+)\s*万?元',
-            r'服务费[：:]?\s*([0-9,，.]+)\s*万?元'
-        ]
-        for pattern in amount_patterns:
-            match = re.search(pattern, full_text)
-            if match:
+    # 使用AI智能提取完整的业绩信息
+    try:
+        from ai_service import ai_service
+        from config_manager import ConfigManager
+        
+        config_manager = ConfigManager()
+        
+        # 构建业绩分析的prompt
+        performance_analysis_prompt = config_manager.build_prompt("performance_analysis", {
+            "text_content": full_text[:2000]  # 限制文本长度避免token过多
+        })
+        
+        if ai_service.enable_ai and performance_analysis_prompt:
+            logger.info("🤖 使用AI智能提取业绩信息...")
+            
+            # 调用AI进行完整的业绩信息提取
+            ai_extraction_result = await ai_service.analyze_text(performance_analysis_prompt)
+            
+            if ai_extraction_result.get("success"):
+                import json
                 try:
-                    amount_str = match.group(1).replace(',', '').replace('，', '')
-                    extracted_info['contract_amount'] = float(amount_str)
-                    logger.info(f"提取到合同金额: {amount_str}")
-                    break
-                except:
-                    pass
-    
-    # 提取年份
-    current_year = None
-    if not extracted_info.get('year'):
-        year_patterns = [
-            r'(\d{4})\s*年',
-            r'签订时间[：:]\s*(\d{4})',
-            r'合同日期[：:]\s*(\d{4})',
-            r'(\d{4})[年/-]\d{1,2}[月/-]\d{1,2}'
-        ]
-        for pattern in year_patterns:
-            match = re.search(pattern, full_text)
-            if match:
-                try:
-                    year = int(match.group(1))
-                    if 2000 <= year <= 2030:  # 合理的年份范围
-                        extracted_info['year'] = year
-                        current_year = year
-                        logger.info(f"提取到年份: {year}")
+                    # 尝试解析AI返回的JSON结果
+                    extraction_data = ai_extraction_result.get("result", {})
+                    if isinstance(extraction_data, dict):
+                        pass  # 已经是字典格式
+                    else:
+                        # 尝试从字符串中解析JSON
+                        extraction_data = json.loads(str(extraction_data))
+                    
+                    # 提取AI识别的所有信息
+                    if extraction_data.get("client_name"):
+                        extracted_info['client_name'] = extraction_data["client_name"]
+                        logger.info(f"✅ AI提取客户名称: {extraction_data['client_name']}")
+                    
+                    if extraction_data.get("project_type"):
+                        extracted_info['project_type'] = extraction_data["project_type"]
+                        logger.info(f"✅ AI判断项目类型: {extraction_data['project_type']}")
+                    
+                    if extraction_data.get("business_field"):
+                        extracted_info['business_field'] = extraction_data["business_field"]
+                        logger.info(f"✅ AI判断业务领域: {extraction_data['business_field']}")
+                    
+                    if extraction_data.get("project_description"):
+                        extracted_info['project_description'] = extraction_data["project_description"]
+                        
+                    if extraction_data.get("case_cause"):
+                        extracted_info['case_cause'] = extraction_data["case_cause"]
+                    
+                    if extraction_data.get("contract_amount"):
+                        try:
+                            extracted_info['contract_amount'] = float(extraction_data["contract_amount"])
+                            logger.info(f"✅ AI提取合同金额: {extraction_data['contract_amount']}")
+                        except:
+                            pass
+                    
+                    if extraction_data.get("year"):
+                        try:
+                            extracted_info['year'] = int(extraction_data["year"])
+                            logger.info(f"✅ AI提取年份: {extraction_data['year']}")
+                        except:
+                            pass
+                    
+                    if extraction_data.get("confidence"):
+                        extracted_info['ai_confidence'] = extraction_data["confidence"]
+                    
+                    if extraction_data.get("reasoning"):
+                        logger.info(f"💡 AI提取理由: {extraction_data['reasoning']}")
+                        
+                    # AI提取成功，跳过关键词匹配
+                    logger.info("✅ AI智能提取完成，跳过关键词匹配")
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"AI返回结果不是有效JSON，使用关键词回退: {e}")
+                    raise Exception("JSON解析失败")
+                except Exception as e:
+                    logger.warning(f"AI提取处理失败，使用关键词回退: {e}")
+                    raise Exception("AI提取处理失败")
+            else:
+                logger.warning("AI提取未返回结果，使用关键词回退")
+                raise Exception("AI无返回结果")
+        else:
+            logger.warning("AI服务未启用或prompt构建失败，使用关键词回退")
+            raise Exception("AI服务不可用")
+            
+    except Exception as e:
+        logger.warning(f"AI智能提取失败: {e}，使用关键词匹配作为回退方案")
+        
+        # 关键词匹配作为回退方案（保留原有逻辑）
+        import re
+        full_text_lower = full_text.lower()
+        
+        # 使用关键词匹配提取基础信息（如果AI没有提取到）
+        if not extracted_info.get('client_name'):
+            client_patterns = [
+                r'甲方[：:]\s*([^\n\r，。；]+)',
+                r'委托方[：:]\s*([^\n\r，。；]+)', 
+                r'客户[：:]\s*([^\n\r，。；]+)',
+                r'委托人[：:]\s*([^\n\r，。；]+)',
+                r'当事人[：:]\s*([^\n\r，。；]+)',
+                r'申请人[：:]\s*([^\n\r，。；]+)'
+            ]
+            for pattern in client_patterns:
+                match = re.search(pattern, full_text)
+                if match:
+                    client_name = match.group(1).strip()
+                    client_name = re.sub(r'（.*?）|\(.*?\)', '', client_name)
+                    client_name = re.sub(r'法定代表人.*|统一社会信用代码.*|地址.*', '', client_name)
+                    client_name = client_name.strip()
+                    if len(client_name) >= 2 and len(client_name) < 50:
+                        extracted_info['client_name'] = client_name
+                        logger.info(f"🔄 关键词提取客户名称: {client_name}")
                         break
-                except:
-                    pass
-    else:
-        current_year = extracted_info['year']
-    
-    # 提取业务领域和项目类型
-    business_field = extracted_info.get('business_field', '')
-    project_type = ""
-    case_cause = ""  # 案由，用于诉讼案件
-    project_description = ""  # 项目描述，用于非诉项目
-    
-    # 判断项目类型并提取相关信息
-    if '诉讼' in full_text or '仲裁' in full_text or '纠纷' in full_text or '争议' in full_text:
-        project_type = "诉讼仲裁"
-        # 提取案由
-        case_patterns = [
-            r'案由[：:]\s*([^\n\r，。；]+)',
-            r'纠纷类型[：:]\s*([^\n\r，。；]+)',
-            r'争议事项[：:]\s*([^\n\r，。；]+)',
-            r'([^\n\r]*?纠纷)',
-            r'([^\n\r]*?争议)',
-            r'([^\n\r]*?侵权)',
-            r'([^\n\r]*?违约)'
-        ]
-        for pattern in case_patterns:
-            match = re.search(pattern, full_text)
-            if match:
-                case_cause = match.group(1).strip()
-                if len(case_cause) > 2 and len(case_cause) < 30:
-                    logger.info(f"提取到案由: {case_cause}")
-                    break
         
-        if not case_cause:
-            # 根据业务领域推断案由
-            if business_field == "知识产权":
-                case_cause = "知识产权纠纷"
-            elif business_field == "合同纠纷":
-                case_cause = "合同纠纷"
+        # 判断项目类型（如果AI没有判断）
+        if not extracted_info.get('project_type'):
+            # 首先检查是否是破产重整相关（优先级最高）
+            if any(keyword in full_text_lower for keyword in ['破产', '重整', '债权申报', '债务重组', '企业重整', '破产清算', '重整计划']):
+                extracted_info['project_type'] = "重大个案(非诉)"
+                logger.info("🔄 关键词匹配判断为: 重大个案(非诉) (破产重整相关)")
+                
+                if '债权申报' in full_text_lower:
+                    extracted_info['project_description'] = "破产重整债权申报"
+                elif '重整' in full_text_lower:
+                    extracted_info['project_description'] = "破产重整"
+                elif '债务重组' in full_text_lower:
+                    extracted_info['project_description'] = "债务重组"
+                else:
+                    extracted_info['project_description'] = "破产重整"
+                    
+            # 然后检查是否是诉讼仲裁（排除破产重整相关）
+            elif any(keyword in full_text_lower for keyword in ['诉讼', '仲裁', '法院', '案件', '起诉', '应诉']) or \
+                 (any(keyword in full_text_lower for keyword in ['纠纷', '争议', '代理']) and \
+                  not any(keyword in full_text_lower for keyword in ['破产', '重整', '债权申报', '债务重组'])):
+                extracted_info['project_type'] = "诉讼仲裁"
+                logger.info("🔄 关键词匹配判断为: 诉讼仲裁")
+                
+            elif any(keyword in full_text_lower for keyword in ['常年', '顾问', '年度法律服务', '长期服务']):
+                extracted_info['project_type'] = "常年法律顾问"
+                logger.info("🔄 关键词匹配判断为: 常年法律顾问")
+                
             else:
-                case_cause = "商事纠纷"
+                extracted_info['project_type'] = "重大个案(非诉)"
+                logger.info("🔄 关键词匹配判断为: 重大个案(非诉)")
         
-        if not business_field:
-            business_field = "争议解决"
-            extracted_info['business_field'] = business_field
-            
-    elif '常年' in full_text or '顾问' in full_text:
-        project_type = "常年法律顾问"
-        if not business_field:
-            business_field = "合规监管"
-            extracted_info['business_field'] = business_field
-    else:
-        project_type = "重大个案(非诉)"
-        # 提取项目描述
-        project_patterns = [
-            r'项目名称[：:]\s*([^\n\r，。；]+)',
-            r'服务内容[：:]\s*([^\n\r，。；]+)',
-            r'委托事项[：:]\s*([^\n\r，。；]+)',
-            r'业务范围[：:]\s*([^\n\r，。；]+)'
-        ]
-        for pattern in project_patterns:
-            match = re.search(pattern, full_text)
-            if match:
-                project_description = match.group(1).strip()
-                # 清理项目描述，移除多余的"项目"字样
-                if project_description.endswith('项目'):
-                    project_description = project_description[:-2]
-                if len(project_description) > 3 and len(project_description) < 50:
-                    logger.info(f"提取到项目描述: {project_description}")
-                    break
+        # 其他信息提取（金额、年份等）
+        if not extracted_info.get('contract_amount'):
+            amount_patterns = [
+                r'合同金额[：:]?\s*([0-9,，.]+)\s*万?元',
+                r'总金额[：:]?\s*([0-9,，.]+)\s*万?元',
+                r'费用[：:]?\s*([0-9,，.]+)\s*万?元',
+                r'律师费[：:]?\s*([0-9,，.]+)\s*万?元',
+                r'服务费[：:]?\s*([0-9,，.]+)\s*万?元'
+            ]
+            for pattern in amount_patterns:
+                match = re.search(pattern, full_text)
+                if match:
+                    try:
+                        amount_str = match.group(1).replace(',', '').replace('，', '')
+                        extracted_info['contract_amount'] = float(amount_str)
+                        logger.info(f"🔄 关键词提取合同金额: {amount_str}")
+                        break
+                    except:
+                        pass
         
-        if not project_description:
-            # 根据业务领域生成默认项目描述
-            if business_field == "并购重组":
-                project_description = "并购重组"
-            elif business_field == "资本市场":
-                project_description = "资本市场"
-            elif business_field == "银行金融":
-                project_description = "银团贷款"
-            elif business_field == "房地产":
-                project_description = "房地产项目"
-            elif business_field == "知识产权":
-                project_description = "知识产权"
-            else:
-                project_description = "法律服务"
-        
-        # 如果没有提取到业务领域，尝试从文本推断
-        if not business_field:
-            if '并购' in full_text or '收购' in full_text or 'M&A' in full_text.upper():
-                business_field = '并购重组'
-            elif 'IPO' in full_text.upper() or '上市' in full_text or '发行' in full_text:
-                business_field = '资本市场'
-            elif '破产' in full_text or '重整' in full_text:
-                business_field = '破产重整'
-            elif '金融' in full_text or '银行' in full_text or '贷款' in full_text:
-                business_field = '银行金融'
-            elif '房地产' in full_text or '土地' in full_text:
-                business_field = '房地产'
-            elif '知识产权' in full_text or '专利' in full_text or '商标' in full_text:
-                business_field = '知识产权'
-            else:
-                business_field = '合规监管'
-            
-            extracted_info['business_field'] = business_field
+        if not extracted_info.get('year'):
+            year_patterns = [
+                r'(\d{4})\s*年',
+                r'签订时间[：:]\s*(\d{4})',
+                r'合同日期[：:]\s*(\d{4})',
+                r'(\d{4})[年/-]\d{1,2}[月/-]\d{1,2}'
+            ]
+            for pattern in year_patterns:
+                match = re.search(pattern, full_text)
+                if match:
+                    try:
+                        year = int(match.group(1))
+                        if 2000 <= year <= 2030:
+                            extracted_info['year'] = year
+                            logger.info(f"🔄 关键词提取年份: {year}")
+                            break
+                    except:
+                        pass
     
     # 生成规范化项目名称
     client_name = extracted_info.get('client_name', '').strip()
+    project_type = extracted_info.get('project_type', '')
+    current_year = extracted_info.get('year')
     
     if client_name and project_type:
         if project_type == "诉讼仲裁":
-            # 格式：代表xxxx的xxxx(案由)纠纷
+            case_cause = extracted_info.get('case_cause', '商事纠纷')
             standardized_name = f"代表{client_name}的{case_cause}"
             if not case_cause.endswith('纠纷'):
-                standardized_name += "纠纷"
+                standardized_name += "纠纷" if not case_cause.endswith('争议') else ""
         elif project_type == "常年法律顾问":
-            # 格式：xxxx常年法律顾问(xxxx年度)
             year_suffix = f"({current_year}年度)" if current_year else ""
             standardized_name = f"{client_name}常年法律顾问{year_suffix}"
         else:  # 重大个案(非诉)
-            # 格式：代表xxxx的xxxxxx项目
-            standardized_name = f"代表{client_name}的{project_description}项目"
+            project_desc = extracted_info.get('project_description', '法律服务')
+            standardized_name = f"代表{client_name}的{project_desc}项目"
         
         extracted_info['project_name'] = standardized_name
-        extracted_info['project_type'] = project_type
         logger.info(f"生成规范化项目名称: {standardized_name}")
-        logger.info(f"确定项目类型: {project_type}")
     
     # 生成项目描述
     if not extracted_info.get('description'):
+        business_field = extracted_info.get('business_field', '法律服务')
+        
         if project_type == "诉讼仲裁":
+            case_cause = extracted_info.get('case_cause', '商事纠纷')
             description = f"代表{client_name}处理{case_cause}案件，提供专业的诉讼代理服务"
         elif project_type == "常年法律顾问":
             description = f"为{client_name}提供{current_year or ''}年度常年法律顾问服务，涵盖日常法律事务咨询和风险防控"
         else:
-            description = f"代表{client_name}的{project_description}项目，在{business_field}领域提供专业法律服务"
+            project_desc = extracted_info.get('project_description', '法律服务')
+            description = f"代表{client_name}的{project_desc}项目，在{business_field}领域提供专业法律服务"
         
         extracted_info['description'] = description
         logger.info(f"生成项目描述: {description}")
@@ -930,7 +924,7 @@ async def reanalyze_performance(
             logger.info(f"AI重新分析完成: {performance.source_document}")
             
             # 从AI结果中提取业绩信息
-            extracted_info = _extract_performance_info(ai_result)
+            extracted_info = await _extract_performance_info(ai_result)
             logger.info(f"重新提取的业绩信息: {extracted_info}")
 
             # 更新AI分析结果

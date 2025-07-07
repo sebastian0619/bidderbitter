@@ -1025,6 +1025,242 @@ async def reanalyze_lawyer_certificate(
         logger.error(f"重新分析律师证失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"重新分析失败: {str(e)}")
 
+@router.post("/upload/batch")
+async def upload_lawyer_certificate_files_batch(
+    files: List[UploadFile] = File(...),
+    enable_ai_analysis: bool = Form(True),
+    enable_vision_analysis: bool = Form(True),
+    auto_verify: bool = Form(False),
+    skip_duplicates: bool = Form(True),
+    db: Session = Depends(get_db)
+):
+    """批量上传律师证文件并进行AI分析"""
+    try:
+        from ai_service import ai_service
+        
+        uploaded_files = []
+        failed_files = []
+        created_certificates = []
+        skipped_files = []
+        
+        # 确保上传目录存在
+        try:
+            from file_management_api import PERMANENT_FILES_PATH
+        except ImportError:
+            PERMANENT_FILES_PATH = "/app/uploads"
+            os.makedirs(PERMANENT_FILES_PATH, exist_ok=True)
+        
+        for i, file in enumerate(files):
+            try:
+                if not file.filename:
+                    failed_files.append({
+                        "filename": "未知文件",
+                        "error": "文件名不能为空"
+                    })
+                    continue
+                
+                # 检查文件类型
+                allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx']
+                file_ext = os.path.splitext(file.filename)[1].lower()
+                if file_ext not in allowed_extensions:
+                    failed_files.append({
+                        "filename": file.filename,
+                        "error": "不支持的文件格式"
+                    })
+                    continue
+                
+                # 检查文件大小
+                content = await file.read()
+                file_size = len(content)
+                
+                if file_size > 50 * 1024 * 1024:  # 50MB限制
+                    failed_files.append({
+                        "filename": file.filename,
+                        "error": "文件大小超过限制(50MB)"
+                    })
+                    continue
+                
+                # 保存文件
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                storage_filename = f"lawyer_cert_batch_{timestamp}_{i}{file_ext}"
+                storage_path = os.path.join(PERMANENT_FILES_PATH, storage_filename)
+                
+                with open(storage_path, "wb") as f:
+                    f.write(content)
+                
+                logger.info(f"文件保存成功: {storage_path}")
+                
+                # AI分析文件
+                ai_result = None
+                extracted_info = {}
+                confidence_score = 0.0
+                certificate_created = None
+                
+                if enable_ai_analysis and ai_service.enable_ai:
+                    try:
+                        # 进行智能文档分析
+                        if enable_vision_analysis:
+                            analysis_result = await ai_service.smart_document_analysis(
+                                storage_path, 
+                                enable_vision=True,
+                                enable_ocr=True
+                            )
+                        else:
+                            analysis_result = await ai_service.smart_document_analysis(
+                                storage_path,
+                                enable_ocr=True
+                            )
+                        
+                        if analysis_result.get("success"):
+                            # 提取分类信息
+                            if enable_vision_analysis:
+                                ai_classification = analysis_result["results"]["final_classification"]
+                            else:
+                                ai_classification = analysis_result.get("classification")
+                            
+                            if ai_classification:
+                                # 提取律师证信息
+                                lawyer_info = ai_classification.get("lawyer_info", {})
+                                key_entities = ai_classification.get("key_entities", {})
+                                
+                                extracted_info = {
+                                    "lawyer_name": lawyer_info.get("name") or key_entities.get("holder_name"),
+                                    "certificate_number": lawyer_info.get("certificate_number") or key_entities.get("certificate_number"),
+                                    "law_firm": lawyer_info.get("law_firm") or ai_classification.get("description", ""),
+                                    "issuing_authority": lawyer_info.get("issuing_authority") or key_entities.get("issuer"),
+                                    "age": lawyer_info.get("age"),
+                                    "id_number": lawyer_info.get("id_number"),
+                                    "position": "合伙人" if "合伙人" in str(ai_classification.get("description", "")) else "律师"
+                                }
+                                
+                                confidence_score = ai_classification.get("confidence", 0.0)
+                                ai_result = ai_classification
+                                
+                                # 如果提取到了必要信息，尝试创建律师证记录
+                                if extracted_info.get("lawyer_name") and extracted_info.get("certificate_number"):
+                                    # 检查是否已存在（如果启用跳过重复）
+                                    if skip_duplicates:
+                                        existing = db.query(LawyerCertificate).filter(
+                                            LawyerCertificate.certificate_number == extracted_info["certificate_number"]
+                                        ).first()
+                                        
+                                        if existing:
+                                            skipped_files.append({
+                                                "filename": file.filename,
+                                                "reason": "执业证号已存在",
+                                                "existing_id": existing.id,
+                                                "existing_name": existing.lawyer_name
+                                            })
+                                            continue
+                                    
+                                    # 决定是否自动验证
+                                    is_verified = False
+                                    if auto_verify and confidence_score >= 0.8:  # 高置信度自动验证
+                                        is_verified = True
+                                    
+                                    # 创建律师证记录
+                                    cert = LawyerCertificate(
+                                        lawyer_name=extracted_info["lawyer_name"],
+                                        certificate_number=extracted_info["certificate_number"],
+                                        law_firm=extracted_info["law_firm"] or "",
+                                        issuing_authority=extracted_info.get("issuing_authority"),
+                                        age=extracted_info.get("age"),
+                                        id_number=extracted_info.get("id_number"),
+                                        position=extracted_info.get("position", "律师"),
+                                        position_tags=[extracted_info.get("position", "律师")],
+                                        source_document=file.filename,
+                                        ai_analysis=analysis_result,
+                                        confidence_score=confidence_score,
+                                        extracted_text=analysis_result.get('text_extraction_result', {}).get('text', ''),
+                                        is_verified=is_verified,
+                                        is_manual_input=False
+                                    )
+                                    
+                                    db.add(cert)
+                                    db.flush()  # 获取ID
+                                    
+                                    # 创建文件关联
+                                    cert_file = LawyerCertificateFile(
+                                        certificate_id=cert.id,
+                                        file_path=storage_path,
+                                        file_type="batch_upload",
+                                        file_name=file.filename,
+                                        file_size=file_size
+                                    )
+                                    
+                                    db.add(cert_file)
+                                    
+                                    certificate_created = {
+                                        "id": cert.id,
+                                        "lawyer_name": cert.lawyer_name,
+                                        "certificate_number": cert.certificate_number,
+                                        "law_firm": cert.law_firm,
+                                        "position": cert.position,
+                                        "confidence_score": confidence_score,
+                                        "is_verified": is_verified
+                                    }
+                                    created_certificates.append(certificate_created)
+                                    
+                                    logger.info(f"自动创建律师证记录: {cert.lawyer_name} ({cert.certificate_number})")
+                        
+                    except Exception as ai_err:
+                        logger.warning(f"AI分析失败: {ai_err}")
+                        ai_result = {"error": str(ai_err)}
+                
+                uploaded_files.append({
+                    "filename": file.filename,
+                    "file_size": file_size,
+                    "storage_path": storage_path,
+                    "ai_analysis": ai_result,
+                    "extracted_info": extracted_info,
+                    "confidence_score": confidence_score,
+                    "certificate_created": certificate_created
+                })
+                
+                logger.info(f"批量律师证文件上传成功: {file.filename}")
+                
+            except Exception as file_err:
+                failed_files.append({
+                    "filename": file.filename,
+                    "error": str(file_err)
+                })
+                logger.error(f"上传文件失败 {file.filename}: {file_err}")
+                
+                # 清理可能已保存的文件
+                try:
+                    if 'storage_path' in locals() and os.path.exists(storage_path):
+                        os.remove(storage_path)
+                except:
+                    pass
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"批量上传完成: {len(uploaded_files)} 成功, {len(failed_files)} 失败, {len(skipped_files)} 跳过",
+            "uploaded_files": uploaded_files,
+            "failed_files": failed_files,
+            "skipped_files": skipped_files,
+            "created_certificates": created_certificates,
+            "ai_analysis": {
+                "enabled": enable_ai_analysis,
+                "vision_enabled": enable_vision_analysis,
+                "auto_verify": auto_verify
+            },
+            "summary": {
+                "total": len(files),
+                "success": len(uploaded_files),
+                "failed": len(failed_files),
+                "skipped": len(skipped_files),
+                "certificates_created": len(created_certificates)
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"批量上传律师证文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"批量上传失败: {str(e)}")
+
 def setup_router(app):
     """设置路由"""
     app.include_router(router) 
