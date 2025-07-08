@@ -90,6 +90,13 @@
                       <el-option label="标题5" :value="5" />
                         <el-option label="标题6 (最低级)" :value="6" />
                     </el-select>
+                      <div class="switch-group" style="margin-top: 8px;">
+                        <el-switch v-model="form.enableNumbering" />
+                        <div class="switch-text">
+                          <span class="switch-title">有序列表</span>
+                          <span class="switch-desc">为二级标题添加自动编号，便于多个文档拼接时连续编号</span>
+                        </div>
+                      </div>
                 </div>
                   </div>
                 </div>
@@ -710,6 +717,7 @@ const form = reactive({
   showFileTitles: true,
   mainTitleLevel: 1,
   fileTitleLevel: 2,
+  enableNumbering: false,  // 新增：是否为二级标题启用有序列表
   enableWatermark: false,
   watermarkText: '',
   watermarkFontSize: 24,
@@ -844,6 +852,7 @@ const resetConverter = () => {
   form.showFileTitles = true
   form.mainTitleLevel = 1
   form.fileTitleLevel = 2
+  form.enableNumbering = false
   form.enableWatermark = false
   form.watermarkText = ''
   form.watermarkFontSize = 24
@@ -1073,6 +1082,7 @@ const convertFiles = async () => {
     formData.append('show_file_titles', form.showFileTitles)
     formData.append('main_title_level', form.mainTitleLevel)
     formData.append('file_title_level', form.fileTitleLevel)
+    formData.append('enable_numbering', form.enableNumbering)
     
     // 添加每个文件的水印设置（包括上传的文件和常驻文件）
     const allFileWatermarkSettings = [
@@ -1344,8 +1354,8 @@ watch(() => form.enableWatermark, (newValue) => {
       h3 {
         margin: 0 0 4px 0;
         color: var(--el-text-color-primary);
-        font-size: 16px;
-        font-weight: 600;
+    font-size: 16px;
+    font-weight: 600;
       }
       
       p {
@@ -1912,7 +1922,7 @@ watch(() => form.enableWatermark, (newValue) => {
 
 .result-success {
   text-align: center;
-      padding: 16px;
+  padding: 16px;
   width: 100%;
   
   .success-icon {

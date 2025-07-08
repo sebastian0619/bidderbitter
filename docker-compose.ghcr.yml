@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: bidderbitter-postgres
+    environment:
+      POSTGRES_DB: bidderbitter
+      POSTGRES_USER: bidderbitter
+      POSTGRES_PASSWORD: bidderbitter123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bidderbitter"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: bidderbitter-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 后端服务 (使用GitHub Container Registry镜像)
+  backend:
+    image: ghcr.io/${GITHUB_USERNAME:-your-username}/bidderbitter/backend:latest
+    container_name: bidderbitter-backend
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql://bidderbitter:bidderbitter123@postgres:5432/bidderbitter
+      
+      # Redis配置
+      REDIS_URL: redis://redis:6379/0
+      
+      # AI服务配置
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-your-openai-api-key}
+      DOCLING_ENABLE_OCR: "true"
+      DOCLING_USE_GPU: "false"
+      DOCLING_OCR_LANGUAGES: '["zh-cn", "en"]'
+      DOCLING_CONFIDENCE_THRESHOLD: "0.7"
+      DOCLING_BITMAP_AREA_THRESHOLD: "0.1"
+      MODEL_STORAGE_DIRECTORY: "/app/easyocr_models"
+      
+      # 文件上传配置
+      MAX_FILE_SIZE: "50MB"
+      UPLOAD_DIR: "/app/uploads"
+      
+      # 其他配置
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_screenshots:/app/screenshots
+      - backend_generated_docs:/app/generated_docs
+      - backend_templates:/app/templates
+      - backend_easyocr_models:/app/easyocr_models
+      - backend_docling_models:/app/docling_models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 前端服务 (使用GitHub Container Registry镜像)
+  frontend:
+    image: ghcr.io/${GITHUB_USERNAME:-your-username}/bidderbitter/frontend:latest
+    container_name: bidderbitter-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx 反向代理 (可选)
+  nginx:
+    image: nginx:alpine
+    container_name: bidderbitter-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  backend_screenshots:
+    driver: local
+  backend_generated_docs:
+    driver: local
+  backend_templates:
+    driver: local
+  backend_easyocr_models:
+    driver: local
+  backend_docling_models:
+    driver: local
+
+networks:
+  default:
+    name: bidderbitter-network 

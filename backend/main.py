@@ -1225,6 +1225,7 @@ async def convert_files_to_word(
     show_file_titles: bool = Form(default=True),  # 新增：是否显示每个文档的标题
     main_title_level: int = Form(default=1),  # 新增：主标题大纲层级
     file_title_level: int = Form(default=2),  # 新增：文件标题大纲层级
+    enable_numbering: bool = Form(default=False),  # 新增：是否为二级标题启用有序列表
     enable_watermark: bool = Form(default=False),
     file_watermark_settings: str = Form(default="[]"),  # 新增：每个文件的水印设置JSON
     file_page_break_settings: str = Form(default="[]"),  # 新增：每个文件的分页符设置JSON
@@ -1474,7 +1475,7 @@ async def convert_files_to_word(
                     effective_is_last_file = is_last_file if file_needs_page_break else True  # 如果不添加分页符，每个文件都当作最后一个文件处理
                     
                     result = await docling_processor.process_pdf_with_docling(
-                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
+                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file, enable_numbering
                     )
                     processed_files.append(f"PDF: {filename}{' (含水印)' if file_needs_watermark and watermark_text else ''}")
                     results.append(result)
@@ -1484,7 +1485,7 @@ async def convert_files_to_word(
                     
                     # 图片文件的水印处理（目前暂不支持，仅记录状态）
                     result = await docling_processor.process_image(
-                        file_path, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
+                        file_path, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file, enable_numbering
                     )
                     processed_files.append(f"图片: {filename}{' (图片暂不支持水印)' if file_needs_watermark else ''}")
                     results.append(result)
