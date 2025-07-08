@@ -1,102 +1,144 @@
-version: '3.8'
-
 services:
   # PostgreSQL 数据库
   postgres:
-    image: postgres:15-alpine
-    container_name: bidderbitter-postgres
+    image: hub.kingschats.com/library/postgres:15
     environment:
-      POSTGRES_DB: bidderbitter
-      POSTGRES_USER: bidderbitter
-      POSTGRES_PASSWORD: bidderbitter123
+      POSTGRES_DB: bidder_db
+      POSTGRES_USER: bidder_user
+      POSTGRES_PASSWORD: bidder_pass
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bidderbitter"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    networks:
+      - bidder_network
 
-  # Redis 缓存
+  # Redis缓存服务
   redis:
-    image: redis:7-alpine
-    container_name: bidderbitter-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    image: hub.kingschats.com/library/redis:7-alpine
+    networks:
+      - bidder_network
 
   # 后端服务 (使用GitHub Container Registry镜像)
   backend:
-    image: ghcr.io/${GITHUB_USERNAME:-your-username}/bidderbitter/backend:latest
+    image: ghcr.io/sebastian0619/bidderbitter/backend:latest
     container_name: bidderbitter-backend
-    environment:
-      # 数据库配置
-      DATABASE_URL: postgresql://bidderbitter:bidderbitter123@postgres:5432/bidderbitter
-      
-      # Redis配置
-      REDIS_URL: redis://redis:6379/0
-      
-      # AI服务配置
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-your-openai-api-key}
-      DOCLING_ENABLE_OCR: "true"
-      DOCLING_USE_GPU: "false"
-      DOCLING_OCR_LANGUAGES: '["zh-cn", "en"]'
-      DOCLING_CONFIDENCE_THRESHOLD: "0.7"
-      DOCLING_BITMAP_AREA_THRESHOLD: "0.1"
-      MODEL_STORAGE_DIRECTORY: "/app/easyocr_models"
-      
-      # 文件上传配置
-      MAX_FILE_SIZE: "50MB"
-      UPLOAD_DIR: "/app/uploads"
-      
-      # 其他配置
-      ENVIRONMENT: "production"
-      LOG_LEVEL: "INFO"
     ports:
       - "8000:8000"
-    volumes:
-      - backend_uploads:/app/uploads
-      - backend_screenshots:/app/screenshots
-      - backend_generated_docs:/app/generated_docs
-      - backend_templates:/app/templates
-      - backend_easyocr_models:/app/easyocr_models
-      - backend_docling_models:/app/docling_models
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      - postgres
+      - redis
+      # - chrome
+    environment:
+      # 数据库配置
+      - DATABASE_URL=${DATABASE_URL:-postgresql://bidder_user:bidder_pass@postgres:5432/bidder_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      
+      # AI服务配置
+      - AI_PROVIDER=custom
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-3.5-turbo}
+      - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4-vision-preview}
+      
+      # Azure OpenAI配置
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-02-01}
+      - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME:-}
+      - AZURE_OPENAI_VISION_DEPLOYMENT_NAME=${AZURE_OPENAI_VISION_DEPLOYMENT_NAME:-}
+      
+      # 其他AI服务配置
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - CUSTOM_AI_API_KEY=sk-olXSWRMsoGdwlUBy4VNtwrXjDNEYfOy706FTmYF87apiSi8q
+      - CUSTOM_AI_BASE_URL=http://192.168.11.4:3010/v1
+      - CUSTOM_AI_MODEL=${CUSTOM_AI_MODEL:-gpt-3.5-turbo}
+      - CUSTOM_AI_VISION_MODEL=${CUSTOM_AI_VISION_MODEL:-gpt-4-vision-preview}
+      
+      # 截图服务配置
+      - SELENIUM_HUB_URL=${SELENIUM_HUB_URL:-http://chrome:4444/wd/hub}
+      - ENABLE_SCREENSHOT=${ENABLE_SCREENSHOT:-false}
+      - SCREENSHOT_TIMEOUT=${SCREENSHOT_TIMEOUT:-30}
+      - SCREENSHOT_MAX_PAGES=${SCREENSHOT_MAX_PAGES:-20}
+      
+      # 文件上传配置
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-524288000}
+      - ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES:-pdf,docx,doc,png,jpg,jpeg}
+      - UPLOAD_PATH=${UPLOAD_PATH:-/app/uploads}
+      - SCREENSHOT_PATH=${SCREENSHOT_PATH:-/app/screenshots}
+      - GENERATED_DOCS_PATH=${GENERATED_DOCS_PATH:-/app/generated_docs}
+      
+      # 应用配置
+      - APP_ENV=${APP_ENV:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      
+      # 功能开关
+      - ENABLE_AI=${ENABLE_AI:-true}
+      - ENABLE_OCR=${ENABLE_OCR:-true}
+      - ENABLE_DOCUMENT_GENERATION=${ENABLE_DOCUMENT_GENERATION:-true}
+      
+      # OCR配置
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-chi_sim+eng}
+      - OCR_ENGINE=${OCR_ENGINE:-tesseract}
+      
+      # 文档生成配置
+      - WORD_TEMPLATE_PATH=${WORD_TEMPLATE_PATH:-/app/templates}
+      - DEFAULT_FONT=${DEFAULT_FONT:-Microsoft YaHei}
+      - IMAGE_MAX_WIDTH=${IMAGE_MAX_WIDTH:-1654}
+      - IMAGE_QUALITY=${IMAGE_QUALITY:-85}
+      
+      # 性能配置
+      - WORKER_CONNECTIONS=${WORKER_CONNECTIONS:-1000}
+      - MAX_CONCURRENT_REQUESTS=${MAX_CONCURRENT_REQUESTS:-100}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-300}
+      
+      # 安全配置
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+      
+      # 新增的MAX_UPLOAD_SIZE_MB
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      
+      # 系统名称配置
+      - APP_NAME=${APP_NAME:-投标苦}
+      
+      # HuggingFace镜像配置
+      - HF_ENDPOINT=https://hf-mirror.com
+      - HUGGINGFACE_HUB_URL=https://hf-mirror.com
+      - HF_HOME=/root/.cache/huggingface
+      - HF_HUB_CACHE=/root/.cache/huggingface/hub
+      - HTTP_PROXY=http://kingscross.online:6785
+      
+    volumes:
+      - ./backend:/app
+      - ./uploads:/app/uploads
+      - ./screenshots:/app/screenshots
+      - ./generated_docs:/app/generated_docs
+      - ./templates:/app/templates
+      - ./easyocr_models:/app/easyocr_models  # EasyOCR模型持久化存储
+      - ./docling_models:/app/docling_models  # Docling模型持久化存储
+    networks:
+      - bidder_network
 
   # 前端服务 (使用GitHub Container Registry镜像)
   frontend:
-    image: ghcr.io/${GITHUB_USERNAME:-your-username}/bidderbitter/frontend:latest
+    image: ghcr.io/sebastian0619/bidderbitter/frontend:latest
     container_name: bidderbitter-frontend
     ports:
-      - "3000:3000"
+      - "5555:3000"
     depends_on:
       - backend
+    networks:
+      - bidder_network
     environment:
-      - VITE_API_BASE_URL=http://localhost:8000
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - VITE_MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - VITE_APP_NAME=${APP_NAME:-投标苦}
+      - VITE_PRODUCTION=${VITE_PRODUCTION:-true}
+      - VITE_APP_FAVICON=${VITE_APP_FAVICON:-/favicon.ico}
+      - VITE_APP_SUBTITLE=${VITE_APP_SUBTITLE:-法律人的投标自救工具}
 
   # Nginx 反向代理 (可选)
   nginx:
@@ -116,22 +158,7 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-  backend_uploads:
-    driver: local
-  backend_screenshots:
-    driver: local
-  backend_generated_docs:
-    driver: local
-  backend_templates:
-    driver: local
-  backend_easyocr_models:
-    driver: local
-  backend_docling_models:
-    driver: local
 
 networks:
-  default:
-    name: bidderbitter-network 
+  bidder_network:
+    name: bidder_network 

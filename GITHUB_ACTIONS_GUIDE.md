@@ -2,17 +2,18 @@
 
 ## 概述
 
-本项目配置了GitHub Actions工作流，在每次push到指定分支时自动构建前后端Docker镜像并推送到GitHub Container Registry (ghcr.io)。
+本项目配置了GitHub Actions工作流，在每次push到指定分支时自动构建前后端Docker镜像并推送到GitHub Container Registry (ghcr.io)。**所有镜像都设置为PUBLIC，无需认证即可拉取。**
 
 ## 工作流文件
 
 ### 1. `.github/workflows/push-build.yml` (推荐)
 - **触发条件**: 推送到 `main`、`master`、`develop` 分支
-- **功能**: 构建并推送前后端镜像
+- **功能**: 构建并推送前后端镜像，自动设置为PUBLIC
 - **标签策略**: 
   - `latest`: 最新版本
   - `{branch-name}`: 分支名标签
   - `{commit-sha}`: 提交哈希标签
+- **权限**: 所有镜像设置为PUBLIC，无需认证
 
 ### 2. `.github/workflows/build-and-push.yml` (完整版)
 - **触发条件**: 推送到指定分支、创建标签、Pull Request
@@ -52,10 +53,10 @@ ghcr.io/{your-username}/{repo-name}/frontend:{tag}
 2. 点击 "Actions" 标签页
 3. 查看最新的工作流运行状态
 
-### 3. 拉取镜像
+### 3. 拉取镜像 (无需认证)
 
 ```bash
-# 拉取最新版本
+# 拉取最新版本 (无需登录)
 docker pull ghcr.io/{your-username}/{repo-name}/backend:latest
 docker pull ghcr.io/{your-username}/{repo-name}/frontend:latest
 
@@ -85,6 +86,14 @@ docker run -d \
 ```
 
 ## 配置说明
+
+### 🔓 Public镜像设置
+
+**重要**: 所有镜像都自动设置为PUBLIC，这意味着：
+- ✅ 任何人都可以拉取镜像，无需GitHub账号
+- ✅ 无需配置认证信息
+- ✅ 可以直接在CI/CD中使用
+- ✅ 适合开源项目分享
 
 ### 环境变量
 
@@ -175,6 +184,30 @@ tags: |
 platforms: linux/amd64,linux/arm64,linux/arm/v7
 ```
 
+## 快速启动
+
+### 使用Public镜像启动
+
+```bash
+# 使用提供的启动脚本
+./start-public.sh
+
+# 或者手动启动
+docker-compose -f docker-compose.ghcr.yml up -d
+```
+
+### 手动拉取和使用
+
+```bash
+# 拉取镜像 (无需认证)
+docker pull ghcr.io/sebastian0619/bidderbitter/backend:latest
+docker pull ghcr.io/sebastian0619/bidderbitter/frontend:latest
+
+# 运行容器
+docker run -d -p 8000:8000 ghcr.io/sebastian0619/bidderbitter/backend:latest
+docker run -d -p 3000:3000 ghcr.io/sebastian0619/bidderbitter/frontend:latest
+```
+
 ## 最佳实践
 
 1. **定期清理旧镜像**: GitHub Container Registry有存储限制
@@ -182,6 +215,7 @@ platforms: linux/amd64,linux/arm64,linux/arm/v7
 3. **监控构建时间**: 优化Dockerfile减少构建时间
 4. **测试镜像**: 在本地测试镜像后再推送
 5. **文档化**: 保持镜像使用说明的更新
+6. **Public镜像优势**: 无需认证，便于分享和部署
 
 ## 相关链接
 

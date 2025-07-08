@@ -39,6 +39,10 @@ jobs:
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.ref_name }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.version=${{ github.ref_name }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
@@ -53,15 +57,37 @@ jobs:
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.sha }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.ref_name }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:latest
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.version=${{ github.ref_name }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         platforms: linux/amd64
+
+    - name: Make Images Public
+      run: |
+        echo "Making images public..."
+        # 等待一下确保镜像已经推送完成
+        sleep 10
+        
+        # 设置后端镜像为public
+        gh api \
+          --method PATCH \
+          /user/packages/container/${{ github.repository }}-backend/visibility \
+          -f visibility=public || echo "Failed to make backend public, may need manual setup"
+        
+        # 设置前端镜像为public
+        gh api \
+          --method PATCH \
+          /user/packages/container/${{ github.repository }}-frontend/visibility \
+          -f visibility=public || echo "Failed to make frontend public, may need manual setup"
 
     - name: Generate summary
       run: |
         echo "## 🐳 Docker Images Built and Pushed Successfully!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📦 Images Created:" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Images Created (Public):" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Backend:**" >> $GITHUB_STEP_SUMMARY
         echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
@@ -73,9 +99,12 @@ jobs:
         echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:latest\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔓 Public Access:" >> $GITHUB_STEP_SUMMARY
+        echo "All images are set to **PUBLIC** - anyone can pull without authentication!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🚀 Quick Pull Commands:" >> $GITHUB_STEP_SUMMARY
         echo "```bash" >> $GITHUB_STEP_SUMMARY
-        echo "# Pull latest images" >> $GITHUB_STEP_SUMMARY
+        echo "# Pull latest images (no authentication required)" >> $GITHUB_STEP_SUMMARY
         echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest" >> $GITHUB_STEP_SUMMARY
         echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:latest" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY

@@ -75,11 +75,32 @@
 - 至少4GB可用内存
 - OpenAI API Key（可选，用于AI功能）
 
-### 安装部署
+### 🚀 使用Public镜像启动 (推荐)
+
+**无需构建，直接使用预构建的镜像！**
+
+```bash
+# 克隆项目
+git clone https://github.com/sebastian0619/bidderbitter.git
+cd bidderbitter
+
+# 使用Public镜像启动 (无需认证)
+./start-public.sh
+
+# 或者手动启动
+docker-compose -f docker-compose.ghcr.yml up -d
+```
+
+**访问系统**
+- 前端界面：http://localhost:5555
+- 后端API：http://localhost:8000
+- API文档：http://localhost:8000/docs
+
+### 🔧 本地构建启动
 
 1. **克隆项目**
 ```bash
-git clone <repository-url>
+git clone https://github.com/sebastian0619/bidderbitter.git
 cd bidderbitter
 ```
 
@@ -253,6 +274,30 @@ A: 确保上传的截图尺寸合适，系统会自动优化图片以适配A4纸
 
 ### Q: 如何备份数据？
 A: 可以使用Docker命令备份PostgreSQL数据库，或者通过系统导出功能。
+
+## 🐳 自动构建
+
+本项目使用GitHub Actions自动构建Docker镜像：
+
+- **触发条件**: 每次push到main/master/develop分支
+- **镜像仓库**: GitHub Container Registry (ghcr.io)
+- **镜像权限**: **PUBLIC** - 任何人都可以拉取使用
+- **标签策略**: latest, {branch-name}, {commit-sha}
+
+### 镜像地址
+```
+ghcr.io/sebastian0619/bidderbitter/backend:latest
+ghcr.io/sebastian0619/bidderbitter/frontend:latest
+```
+
+### 手动拉取
+```bash
+# 无需认证，直接拉取
+docker pull ghcr.io/sebastian0619/bidderbitter/backend:latest
+docker pull ghcr.io/sebastian0619/bidderbitter/frontend:latest
+```
+
+详细说明请查看 [GitHub Actions 指南](GITHUB_ACTIONS_GUIDE.md)
 
 ## 开发计划
 
