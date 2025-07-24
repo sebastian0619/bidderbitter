@@ -48,5 +48,3 @@ asyncio-throttle
 easyocr
 pytz
 fastmcp
-hf_transfer
-docxcompose>=1.4.0

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投标文档制作调试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .result {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>投标文档制作功能调试</h1>
+    
+    <div class="test-section">
+        <h2>1. 测试API连接</h2>
+        <button onclick="testAPI()">测试API连接</button>
+        <div id="api-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 测试项目创建</h2>
+        <button onclick="testCreateProject()">创建测试项目</button>
+        <div id="project-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 测试文件上传</h2>
+        <input type="file" id="testFile" accept=".pdf,.doc,.docx,.txt">
+        <button onclick="testFileUpload()">上传文件</button>
+        <div id="upload-result" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 测试路由跳转</h2>
+        <button onclick="testRoute()">跳转到投标文档制作页面</button>
+        <div id="route-result" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        let currentProjectId = null;
+
+        async function testAPI() {
+            const resultDiv = document.getElementById('api-result');
+            try {
+                const response = await fetch(`${API_BASE}/bid-documents/templates`);
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <strong>API连接成功</strong><br>
+                    状态码: ${response.status}<br>
+                    响应: ${JSON.stringify(data, null, 2)}
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <strong>API连接失败</strong><br>
+                    错误: ${error.message}
+                `;
+            }
+        }
+
+        async function testCreateProject() {
+            const resultDiv = document.getElementById('project-result');
+            try {
+                const response = await fetch(`${API_BASE}/projects`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        name: '调试测试项目',
+                        description: '这是一个调试测试项目',
+                        bidder_name: '测试律师事务所'
+                    })
+                });
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <strong>项目创建结果</strong><br>
+                    状态码: ${response.status}<br>
+                    响应: ${JSON.stringify(data, null, 2)}
+                `;
+                
+                if (data.success && data.data && data.data.id) {
+                    currentProjectId = data.data.id;
+                    resultDiv.innerHTML += `<br><strong>项目ID: ${currentProjectId}</strong>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <strong>项目创建失败</strong><br>
+                    错误: ${error.message}
+                `;
+            }
+        }
+
+        async function testFileUpload() {
+            const resultDiv = document.getElementById('upload-result');
+            const fileInput = document.getElementById('testFile');
+            
+            if (!fileInput.files[0]) {
+                resultDiv.innerHTML = '<strong>请先选择文件</strong>';
+                return;
+            }
+            
+            if (!currentProjectId) {
+                resultDiv.innerHTML = '<strong>请先创建项目</strong>';
+                return;
+            }
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                formData.append('project_id', currentProjectId);
+                
+                const response = await fetch(`${API_BASE}/bid-documents/analyze-tender-document`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                resultDiv.innerHTML = `
+                    <strong>文件上传结果</strong><br>
+                    状态码: ${response.status}<br>
+                    响应: ${JSON.stringify(data, null, 2)}
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <strong>文件上传失败</strong><br>
+                    错误: ${error.message}
+                `;
+            }
+        }
+
+        function testRoute() {
+            const resultDiv = document.getElementById('route-result');
+            try {
+                window.open('http://localhost:5555/bid-document-maker', '_blank');
+                resultDiv.innerHTML = '<strong>已尝试打开投标文档制作页面</strong>';
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <strong>路由跳转失败</strong><br>
+                    错误: ${error.message}
+                `;
+            }
+        }
+    </script>
+</body>
+</html> 

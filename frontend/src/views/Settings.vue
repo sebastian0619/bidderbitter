@@ -378,6 +378,141 @@
         </el-form>
       </el-card>
 
+      <!-- OCR配置 -->
+      <el-card class="settings-card ocr-card">
+        <template #header>
+          <div class="card-header">
+            <div class="card-title-wrapper">
+              <div class="card-icon ocr-icon">
+                <el-icon><Document /></el-icon>
+              </div>
+              <div class="card-title-text">
+                <h3>OCR文字识别配置</h3>
+                <span class="card-subtitle">配置文档OCR识别参数，优化扫描件文字提取</span>
+              </div>
+            </div>
+            <el-button 
+              type="primary" 
+              size="default"
+              @click="saveOCRSettings"
+              :loading="saving"
+              class="save-btn"
+            >
+              <el-icon><Check /></el-icon>
+              保存设置
+            </el-button>
+          </div>
+        </template>
+
+        <el-form :model="ocrSettings" label-width="140px" class="settings-form">
+          <div class="form-group">
+            <el-form-item label="启用OCR识别">
+              <el-switch v-model="ocrSettings.docling_enable_ocr" active-text="启用" inactive-text="禁用" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                启用后系统将对扫描件PDF进行OCR文字识别
+              </div>
+            </el-form-item>
+
+            <el-form-item label="强制全页OCR">
+              <el-switch v-model="ocrSettings.docling_force_full_page_ocr" active-text="启用" inactive-text="禁用" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                强制对所有PDF页面进行OCR，提高扫描件识别率
+              </div>
+            </el-form-item>
+
+            <el-form-item label="OCR语言">
+              <el-select v-model="ocrSettings.docling_ocr_languages" multiple placeholder="选择OCR识别语言" class="full-width">
+                <el-option label="简体中文" value="ch_sim">
+                  <div class="option-item">
+                    <span class="option-label">简体中文</span>
+                    <span class="option-desc">识别简体中文字符</span>
+                  </div>
+                </el-option>
+                <el-option label="英文" value="en">
+                  <div class="option-item">
+                    <span class="option-label">英文</span>
+                    <span class="option-desc">识别英文字符</span>
+                  </div>
+                </el-option>
+              </el-select>
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                选择OCR需要识别的语言，支持多语言混合识别
+              </div>
+            </el-form-item>
+
+            <el-form-item label="置信度阈值">
+              <el-slider
+                v-model="ocrSettings.docling_confidence_threshold"
+                :min="0.1"
+                :max="0.9"
+                :step="0.05"
+                :format-tooltip="(val) => `${(val * 100).toFixed(0)}%`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                文字识别的置信度阈值，越低识别越多文字但可能包含错误，建议0.2-0.5
+              </div>
+            </el-form-item>
+
+            <el-form-item label="位图区域阈值">
+              <el-slider
+                v-model="ocrSettings.docling_bitmap_area_threshold"
+                :min="0.01"
+                :max="0.1"
+                :step="0.01"
+                :format-tooltip="(val) => `${(val * 100).toFixed(1)}%`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                识别的最小区域比例，越小识别越多小文字，建议0.03-0.05
+              </div>
+            </el-form-item>
+
+            <el-form-item label="图像缩放倍数">
+              <el-slider
+                v-model="ocrSettings.docling_images_scale"
+                :min="1.0"
+                :max="5.0"
+                :step="0.5"
+                :format-tooltip="(val) => `${val}x`"
+                class="full-width"
+              />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                OCR处理时的图像放大倍数，越大识别越准确但处理越慢，建议2.0-3.0
+              </div>
+            </el-form-item>
+
+            <el-form-item label="使用GPU加速">
+              <el-switch v-model="ocrSettings.docling_use_gpu" active-text="启用" inactive-text="禁用" />
+              <div class="form-help">
+                <el-icon><InfoFilled /></el-icon>
+                启用GPU加速可显著提高OCR处理速度（需要CUDA环境）
+              </div>
+            </el-form-item>
+
+            <el-alert
+              title="OCR配置优化建议"
+              type="info"
+              :closable="false"
+              show-icon
+              class="info-alert"
+            >
+              <template #default>
+                <p><strong>扫描件优化：</strong>启用强制全页OCR，置信度阈值设为0.2-0.3</p>
+                <p><strong>文字质量：</strong>图像缩放倍数设为2.0-3.0，位图阈值设为0.03</p>
+                <p><strong>处理速度：</strong>启用GPU加速，降低图像缩放倍数</p>
+              </template>
+            </el-alert>
+          </div>
+        </el-form>
+      </el-card>
+
       <!-- 上传设置 -->
       <el-card class="settings-card upload-card">
         <template #header>
@@ -1093,7 +1228,7 @@ import {
   EditPen, ArrowDown, Clock, Folder, Download, FolderOpened,
   CircleCheckFilled, CircleCloseFilled
 } from '@element-plus/icons-vue'
-import { apiService } from '@/services/api'
+import apiService from '@/services/api'
 
 // 响应式数据
 const loading = ref(true)
@@ -1167,13 +1302,13 @@ const ocrStatus = ref({
 })
 
 const ocrSettings = ref({
-  enable_docling_ocr: true,
+  docling_enable_ocr: true,
+  docling_force_full_page_ocr: true,
   docling_ocr_languages: ['ch_sim', 'en'],
-  easyocr_enable: true,  // 默认启用EasyOCR
-  easyocr_model_path: '/easyocr_models',
-  easyocr_languages: ['ch_sim', 'en'],
-  easyocr_use_gpu: false,
-  easyocr_download_proxy: ''
+  docling_confidence_threshold: 0.2,
+  docling_bitmap_area_threshold: 0.03,
+  docling_images_scale: 3.0,
+  docling_use_gpu: false
 })
 
 // AI分析高级设置
@@ -1480,29 +1615,15 @@ const saveMCPSettings = async () => {
 const saveOCRSettings = async () => {
   try {
     saving.value = true
-    console.log('🔧 开始保存OCR设置:', ocrSettings.value)
-    
-    const settingsToSave = { ...ocrSettings.value }
-    
-    // 处理OCR语言数组的序列化
-    if (settingsToSave.docling_ocr_languages && Array.isArray(settingsToSave.docling_ocr_languages)) {
-      settingsToSave.docling_ocr_languages = JSON.stringify(settingsToSave.docling_ocr_languages)
-    }
-    if (settingsToSave.easyocr_languages && Array.isArray(settingsToSave.easyocr_languages)) {
-      settingsToSave.easyocr_languages = JSON.stringify(settingsToSave.easyocr_languages)
-    }
-    
-    const response = await apiService.updateSettings(settingsToSave)
-    
+    const response = await apiService.updateSettings(ocrSettings.value)
     if (response.success) {
       ElMessage.success('OCR设置保存成功')
-      await loadSettings() // 重新加载设置
+      await loadSettings()
     } else {
-      ElMessage.error('OCR设置保存失败')
+      ElMessage.error(response.message || 'OCR设置保存失败')
     }
   } catch (error) {
-    console.error('保存OCR设置失败:', error)
-    ElMessage.error('保存OCR设置失败')
+    ElMessage.error('保存OCR设置失败: ' + (error.message || '未知错误'))
   } finally {
     saving.value = false
   }

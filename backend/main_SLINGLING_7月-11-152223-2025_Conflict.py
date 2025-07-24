@@ -18,8 +18,6 @@ from PIL import Image
 from sqlalchemy import desc
 import pytz
 from sqlalchemy.sql import func
-from docxcompose.composer import Composer
-from docx import Document as DocxDocument
 
 # 添加当前目录到sys.path以确保模块可以被导入
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -45,7 +43,6 @@ try:
     import search_api
     import ai_tools_api
     import file_management_api
-    import bid_document_api
     from document_processor import docling_processor, format_heading_standalone
     IMPORT_SUCCESS = True
 except ImportError as e:
@@ -198,10 +195,6 @@ async def startup_event():
             # 注册AI自动检索API路由
             app.include_router(search_api.router)
             logger.info("AI自动检索API路由注册成功")
-            
-            # 注册投标文档制作API路由
-            bid_document_api.setup_router(app)
-            logger.info("投标文档制作API路由注册成功")
             
             # 注册AI工具API路由
             app.include_router(ai_tools_api.router)
@@ -1228,16 +1221,15 @@ async def init_default_settings(db: Session = Depends(get_db)):
 async def convert_files_to_word(
     files: List[UploadFile] = File(default=[]),
     document_title: str = Form(default="转换文档"),
-    show_main_title: bool = Form(default=True),
-    show_file_titles: bool = Form(default=True),
-    main_title_level: int = Form(default=1),
-    file_title_level: int = Form(default=2),
-    enable_numbering: bool = Form(default=True),
+    show_main_title: bool = Form(default=True),  # 新增：是否显示主标题
+    show_file_titles: bool = Form(default=True),  # 新增：是否显示每个文档的标题
+    main_title_level: int = Form(default=1),  # 新增：主标题大纲层级
+    file_title_level: int = Form(default=2),  # 新增：文件标题大纲层级
     enable_watermark: bool = Form(default=False),
-    file_watermark_settings: str = Form(default="[]"),
-    file_page_break_settings: str = Form(default="[]"),
-    file_page_number_settings: str = Form(default="[]"),
-    permanent_file_ids: str = Form(default="[]"),
+    file_watermark_settings: str = Form(default="[]"),  # 新增：每个文件的水印设置JSON
+    file_page_break_settings: str = Form(default="[]"),  # 新增：每个文件的分页符设置JSON
+    file_page_number_settings: str = Form(default="[]"),  # 新增：每个文件的页码设置JSON
+    permanent_file_ids: str = Form(default="[]"),  # 新增：选择的常驻文件ID列表
     watermark_text: str = Form(default=""),
     watermark_font_size: int = Form(default=24),
     watermark_angle: int = Form(default=-45),
@@ -1246,189 +1238,467 @@ async def convert_files_to_word(
     watermark_position: str = Form(default="center"),
     db: Session = Depends(get_db)
 ):
-    import json
-    import shutil
-    from datetime import datetime, timedelta
-    import os
-    from docx import Document as DocxDocument
-    from docxcompose.composer import Composer
-    from docx.shared import Pt
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches
-    from PIL import Image
-    from docx.oxml.shared import qn
-
-    logger.info(f"收到转换请求 - 文档标题: {document_title}, 文件数量: {len(files)}")
-
-    temp_dir = "temp_conversions"
-    os.makedirs(temp_dir, exist_ok=True)
-    file_paths = []
-    file_names = []
-    for file in files:
-        file_path = os.path.join(temp_dir, file.filename)
-        content = await file.read()
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
-        file_paths.append(file_path)
-        file_names.append(file.filename)
-
-    # 解析每个文件的页码设置
+    """
+    将上传的PDF和图片文件转换为Word文档
+    """
     try:
-        file_page_number_list = json.loads(file_page_number_settings)
-    except:
-        file_page_number_list = []
-
-    # 创建主文档
-    main_doc = DocxDocument()
-    composer = Composer(main_doc)
-    # 设置A4页面
-    section = main_doc.sections[0]
-    section.page_width = Inches(8.27)
-    section.page_height = Inches(11.69)
-    section.left_margin = Inches(1.0)
-    section.right_margin = Inches(1.0)
-    section.top_margin = Inches(1.0)
-    section.bottom_margin = Inches(1.0)
-
-    # 主标题
-    if show_main_title:
-        para = main_doc.add_paragraph()
-        run = para.add_run(document_title)
-        run.bold = True
-        run.font.size = Pt(18)
-        # 设置中英文字体
-        run.font.name = '楷体'
-        run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-        run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    total_files = len(file_paths)
-    for i, file_path in enumerate(file_paths):
-        filename = os.path.basename(file_path)
-        file_ext = os.path.splitext(filename)[1].lower()
-        is_last_file = (i == total_files - 1)
-        
-        # 检查当前文件是否需要水印
-        file_needs_watermark = False
+        logger.info(f"收到转换请求 - 文档标题: {document_title}, 文件数量: {len(files)}")
+        logger.info(f"标题配置 - 显示主标题: {show_main_title}(层级{main_title_level}), 显示文件标题: {show_file_titles}(层级{file_title_level})")
+        logger.info(f"分页设置 - 文件间分页符: {file_page_break_settings}, 页码: {file_page_number_settings}")
         if enable_watermark and watermark_text:
+            logger.info(f"水印配置 - 文字: {watermark_text}, 字体大小: {watermark_font_size}, 角度: {watermark_angle}°, 透明度: {watermark_opacity}%, 颜色: {watermark_color}, 位置: {watermark_position}")
+        
+        # 创建临时目录
+        temp_dir = "temp_conversions"
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # 处理上传的临时文件
+        file_paths = []
+        file_names = []
+        
+        for file in files:
+            file_path = os.path.join(temp_dir, file.filename)
+            content = await file.read()
+            if len(content) > MAX_UPLOAD_SIZE:
+                return {"success": False, "message": f"单个文件不能超过{MAX_UPLOAD_SIZE_MB}MB"}
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            file_paths.append(file_path)
+            file_names.append(file.filename)
+            
+            # 将临时文件保存到数据库
             try:
-                file_watermark_list = json.loads(file_watermark_settings)
-                if i < len(file_watermark_list):
-                    file_needs_watermark = file_watermark_list[i]
-            except:
-                file_needs_watermark = enable_watermark  # 如果解析失败，默认启用
-        
-        # 文件标题
-        if show_file_titles:
-            para = main_doc.add_paragraph()
-            run = para.add_run(os.path.splitext(filename)[0])
-            run.bold = True
-            run.font.size = Pt(16)
-            # 设置中英文字体
-            run.font.name = '楷体'
-            run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-            run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        
-        # 页码文本
-        file_needs_page_numbers = False
-        if i < len(file_page_number_list):
-            file_needs_page_numbers = file_page_number_list[i]
-        if file_needs_page_numbers:
-            # 直接插入页码文本
-            para = main_doc.add_paragraph()
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            run = para.add_run(f"（第{i+1}页，共{total_files}页）")
-            run.font.size = Pt(12)
-            # 设置中英文字体
-            run.font.name = '楷体'
-            run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-            run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
-            run.italic = True
-        
-        # 文件内容
-        if file_ext in ['.docx', '.doc']:
-            # 用docxcompose合并
-            sub_doc = DocxDocument(file_path)
-            
-            # 为合并的文档设置中英文字体
-            for paragraph in sub_doc.paragraphs:
-                for run in paragraph.runs:
-                    run.font.name = '楷体'
-                    run._element.rPr.rFonts.set(qn('w:ascii'), 'Times New Roman')
-                    run._element.rPr.rFonts.set(qn('w:eastAsia'), '楷体')
-                    run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
-            
-            composer.append(sub_doc)
-            
-            # 如果当前文件需要水印，在合并后添加水印
-            if file_needs_watermark:
-                add_watermark_to_existing_document(main_doc, watermark_text, watermark_font_size, watermark_angle, watermark_opacity, watermark_color, watermark_position)
-                logger.info(f"为文件 {filename} 添加水印: {watermark_text}")
+                from models import ManagedFile
+                import hashlib
+                import mimetypes
                 
-        elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
-            # 只插入图片
+                file_hash = hashlib.md5(content).hexdigest()
+                mime_type, _ = mimetypes.guess_type(file.filename)
+                if not mime_type:
+                    mime_type = "application/octet-stream"
+                
+                temp_db_file = ManagedFile(
+                    original_filename=file.filename,
+                    display_name=file.filename,
+                    storage_path=file_path,
+                    file_type='pdf' if file.filename.lower().endswith('.pdf') else 'image',
+                    mime_type=mime_type,
+                    file_size=len(content),
+                    file_hash=file_hash,
+                    file_category="temporary_upload",  # 上传的临时文件
+                    category="document_conversion",
+                    expires_at=datetime.now() + timedelta(days=30),  # 30天过期
+                    access_count=1,
+                    last_accessed=datetime.now()
+                )
+                db.add(temp_db_file)
+                
+            except Exception as db_err:
+                logger.warning(f"保存临时文件到数据库失败: {db_err}")
+        
+        # 处理选择的常驻文件
+        try:
+            permanent_ids = json.loads(permanent_file_ids)
+            if permanent_ids:
+                from models import ManagedFile
+                
+                permanent_files = db.query(ManagedFile).filter(
+                    ManagedFile.id.in_(permanent_ids),
+                    ManagedFile.file_category == "permanent",
+                    ManagedFile.is_archived == False
+                ).all()
+                
+                for perm_file in permanent_files:
+                    if os.path.exists(perm_file.storage_path):
+                        # 复制常驻文件到临时目录，用于处理
+                        temp_copy_filename = f"copy_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{perm_file.original_filename}"
+                        temp_copy_path = os.path.join(temp_dir, temp_copy_filename)
+                        shutil.copy2(perm_file.storage_path, temp_copy_path)
+                        file_paths.append(temp_copy_path)
+                        file_names.append(perm_file.original_filename)
+                        
+                        # 将复制的文件保存为临时生成文件（180天后清理）
+                        try:
+                            import hashlib
+                            with open(temp_copy_path, 'rb') as f:
+                                file_hash = hashlib.md5(f.read()).hexdigest()
+                            
+                            copy_db_file = ManagedFile(
+                                original_filename=perm_file.original_filename,
+                                display_name=f"复制_{perm_file.display_name}",
+                                storage_path=temp_copy_path,
+                                file_type=perm_file.file_type,
+                                mime_type=perm_file.mime_type,
+                                file_size=perm_file.file_size,
+                                file_hash=file_hash,
+                                file_category="temporary_generated",  # 生成的临时文件
+                                category="permanent_file_copy",
+                                description=f"常驻文件的处理副本: {perm_file.display_name}",
+                                expires_at=datetime.now() + timedelta(days=180),  # 180天过期
+                                access_count=1,
+                                last_accessed=datetime.now()
+                            )
+                            db.add(copy_db_file)
+                        except Exception as copy_db_err:
+                            logger.warning(f"保存常驻文件副本到数据库失败: {copy_db_err}")
+                        
+                        # 更新原始常驻文件的访问统计
+                        perm_file.access_count += 1
+                        perm_file.last_accessed = datetime.now()
+                        
+                        logger.info(f"复制常驻文件用于处理: {perm_file.display_name} -> {temp_copy_filename}")
+                    else:
+                        logger.warning(f"常驻文件不存在: {perm_file.storage_path}")
+                
+        except Exception as perm_err:
+            logger.warning(f"处理常驻文件失败: {perm_err}")
+        
+        # 提交数据库更改
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.warning(f"提交数据库更改失败: {commit_err}")
+            db.rollback()
+        
+        # 创建Word文档（直接在这里创建，不使用convert_files_to_word方法）
+        doc = Document()
+        
+        # 设置页面为A4大小
+        from docx.shared import Inches
+        from docx.enum.section import WD_ORIENTATION
+        section = doc.sections[0]
+        section.page_width = Inches(8.27)  # A4宽度 (210mm)
+        section.page_height = Inches(11.69)  # A4高度 (297mm)
+        section.orientation = WD_ORIENTATION.PORTRAIT  # 纵向
+        section.left_margin = Inches(1.0)  # 1英寸页边距
+        section.right_margin = Inches(1.0)
+        section.top_margin = Inches(1.0)
+        section.bottom_margin = Inches(1.0)
+        
+        # 根据配置决定是否创建主标题
+        if show_main_title:
+            format_heading(doc, document_title, level=main_title_level, center=True)
+        
+        # 解析每个文件的水印设置
+        try:
+            file_watermark_list = json.loads(file_watermark_settings)
+        except:
+            file_watermark_list = []
+        
+        # 解析每个文件的分页符设置
+        try:
+            file_page_break_list = json.loads(file_page_break_settings)
+        except:
+            file_page_break_list = []
+        
+        # 解析每个文件的页码设置
+        try:
+            file_page_number_list = json.loads(file_page_number_settings)
+        except:
+            file_page_number_list = []
+        
+        # 检查是否有任何文件需要页码
+        has_any_page_numbers = any(file_page_number_list) if file_page_number_list else False
+        
+        # 如果有文件需要页码，设置页码样式
+        if has_any_page_numbers:
+            # 添加页脚和页码
+            from docx.oxml.shared import qn
+            from docx.oxml import OxmlElement
+            
+            section = doc.sections[0]
+            footer = section.footer
+            footer_para = footer.paragraphs[0]
+            footer_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # 添加页码域
+            fldChar1 = OxmlElement('w:fldChar')
+            fldChar1.set(qn('w:fldCharType'), 'begin')
+            
+            instrText = OxmlElement('w:instrText')
+            instrText.text = 'PAGE'
+            
+            fldChar2 = OxmlElement('w:fldChar')
+            fldChar2.set(qn('w:fldCharType'), 'end')
+            
+            run = footer_para.runs[0] if footer_para.runs else footer_para.add_run()
+            run._element.append(fldChar1)
+            run._element.append(instrText)
+            run._element.append(fldChar2)
+            
+            logger.info("页码设置完成")
+        
+        processed_files = []
+        results = []
+        total_files = len(file_paths)
+        
+        if total_files == 0:
+            return {"success": False, "message": "没有可处理的文件"}
+        
+        # 逐个处理文件
+        for i, file_path in enumerate(file_paths):
+            filename = os.path.basename(file_path)
+            file_ext = os.path.splitext(filename)[1].lower()
+            is_last_file = (i == total_files - 1)
+            
+            # 检查当前文件是否需要水印
+            file_needs_watermark = False
+            if i < len(file_watermark_list):
+                file_needs_watermark = file_watermark_list[i]
+            else:
+                file_needs_watermark = enable_watermark  # 默认跟随全局设置
+            
+            # 检查当前文件是否需要分页符
+            file_needs_page_break = True  # 默认需要分页符
+            if i < len(file_page_break_list):
+                file_needs_page_break = file_page_break_list[i]
+            
+            # 检查当前文件是否需要页码
+            file_needs_page_numbers = False  # 默认不需要页码
+            if i < len(file_page_number_list):
+                file_needs_page_numbers = file_page_number_list[i]
+            
             try:
-                image_width = Inches(5.5)
-                img_para = main_doc.add_paragraph()
-                img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                img_para.add_run().add_picture(file_path, width=image_width)
-                
-                # 如果当前文件需要水印，在图片后添加水印
-                if file_needs_watermark:
-                    add_watermark_to_existing_document(main_doc, watermark_text, watermark_font_size, watermark_angle, watermark_opacity, watermark_color, watermark_position)
-                    logger.info(f"为图片文件 {filename} 添加水印: {watermark_text}")
+                if file_ext == '.pdf':
+                    # 如果此文件需要水印，先给PDF添加水印
+                    pdf_to_process = file_path
+                    if file_needs_watermark and watermark_text:
+                        pdf_to_process = add_watermark_to_pdf(file_path, watermark_text, watermark_font_size,
+                                                            watermark_angle, watermark_opacity, 
+                                                            watermark_color, watermark_position)
+                        logger.info(f"为文件 {filename} 添加水印: {watermark_text}")
+                    else:
+                        logger.info(f"文件 {filename} 跳过水印")
                     
-            except Exception as e:
-                main_doc.add_paragraph(f"图片插入失败: {str(e)}")
-                
-        elif file_ext == '.pdf':
-            # PDF转图片插入
-            import fitz
-            pdf_document = fitz.open(file_path)
-            for page_num in range(len(pdf_document)):
-                page = pdf_document.load_page(page_num)
-                mat = fitz.Matrix(2.0, 2.0)
-                pix = page.get_pixmap(matrix=mat)
-                temp_image_path = f"{temp_dir}/temp_pdf_{i}_{page_num}.png"
-                pix.save(temp_image_path)
-                img_para = main_doc.add_paragraph()
-                img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                img_para.add_run().add_picture(temp_image_path, width=Inches(5.5))
-                os.remove(temp_image_path)
-                
-                # 如果当前文件需要水印，在每页PDF图片后添加水印
-                if file_needs_watermark:
-                    add_watermark_to_existing_document(main_doc, watermark_text, watermark_font_size, watermark_angle, watermark_opacity, watermark_color, watermark_position)
-                    logger.info(f"为PDF文件 {filename} 第{page_num+1}页添加水印: {watermark_text}")
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True  # 如果不添加分页符，每个文件都当作最后一个文件处理
                     
-            pdf_document.close()
+                    result = await docling_processor.process_pdf_with_docling(
+                        pdf_to_process, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
+                    )
+                    processed_files.append(f"PDF: {filename}{' (含水印)' if file_needs_watermark and watermark_text else ''}")
+                    results.append(result)
+                elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True  # 如果不添加分页符，每个文件都当作最后一个文件处理
+                    
+                    # 图片文件的水印处理（目前暂不支持，仅记录状态）
+                    result = await docling_processor.process_image(
+                        file_path, doc, filename, None, show_file_titles, file_title_level, effective_is_last_file
+                    )
+                    processed_files.append(f"图片: {filename}{' (图片暂不支持水印)' if file_needs_watermark else ''}")
+                    results.append(result)
+                elif file_ext in ['.docx', '.doc']:
+                    # Word文件处理 - 直接拼接，不调用docling
+                    # 根据分页符设置决定是否为最后一个文件
+                    effective_is_last_file = is_last_file if file_needs_page_break else True
+                    
+                    # 使用DocumentProcessor的Word拼接功能
+                    from document_processor import DocumentProcessor
+                    
+                    # 创建临时输出路径用于单个Word文件处理
+                    temp_output_path = os.path.join(temp_dir, f"temp_word_{i}.docx")
+                    
+                    # 对于单个Word文件，我们直接复制内容到主文档
+                    try:
+                        # 打开Word文档
+                        word_doc = Document(file_path)
+                        
+                        # 如果不是第一个文档且需要分页符，添加分页符
+                        if i > 0 and file_needs_page_break:
+                            doc.add_page_break()
+                        
+                        # 如果需要显示文件标题，添加标题
+                        if show_file_titles:
+                            # 移除文件扩展名
+                            title_text = os.path.splitext(filename)[0]
+                            format_heading_standalone(doc, title_text, level=file_title_level, center=False)
+                        
+                        # 复制Word文档的所有段落到主文档
+                        for paragraph in word_doc.paragraphs:
+                            # 创建新段落
+                            new_para = doc.add_paragraph()
+                            
+                            # 复制段落格式
+                            new_para.style = paragraph.style
+                            new_para.alignment = paragraph.alignment
+                            
+                            # 复制段落内容
+                            for run in paragraph.runs:
+                                new_run = new_para.add_run(run.text)
+                                # 复制运行格式
+                                new_run.bold = run.bold
+                                new_run.italic = run.italic
+                                new_run.underline = run.underline
+                                new_run.font.size = run.font.size
+                                new_run.font.name = run.font.name
+                                if run.font.color.rgb:
+                                    new_run.font.color.rgb = run.font.color.rgb
+                        
+                        # 复制Word文档的所有表格到主文档
+                        for table in word_doc.tables:
+                            # 创建新表格
+                            new_table = doc.add_table(rows=len(table.rows), cols=len(table.columns))
+                            new_table.style = table.style
+                            
+                            # 复制表格内容
+                            for row_idx, row in enumerate(table.rows):
+                                for col_idx, cell in enumerate(row.cells):
+                                    new_table.cell(row_idx, col_idx).text = cell.text
+                        
+                        # 估算页数（简单估算）
+                        estimated_pages = len(word_doc.paragraphs) // 40 + 1
+                        
+                        processed_files.append(f"Word: {filename}")
+                        results.append({
+                            "success": True,
+                            "message": f"成功处理Word文档: {filename}",
+                            "pages": estimated_pages
+                        })
+                        
+                        logger.info(f"成功处理Word文档: {filename}")
+                        
+                    except Exception as word_error:
+                        logger.error(f"处理Word文档失败 {filename}: {word_error}")
+                        processed_files.append(f"失败: {filename}")
+                        results.append({
+                            "success": False,
+                            "message": f"Word文档处理失败: {str(word_error)}"
+                        })
+                else:
+                    processed_files.append(f"不支持的格式: {filename}")
+                    results.append({
+                        "success": False,
+                        "message": f"不支持的文件格式: {file_ext}"
+                    })
+            except Exception as file_error:
+                logger.error(f"处理文件 {filename} 失败: {file_error}")
+                processed_files.append(f"失败: {filename}")
+                results.append({
+                    "success": False,
+                    "message": f"处理失败: {str(file_error)}"
+                })
+        
+        # 文档内容生成完成，水印已在PDF阶段处理
+        # 生成输出文件名和路径
+        sanitized_title = "".join(c for c in document_title if c.isalnum() or c in " -_").strip()
+        if not sanitized_title:
+            sanitized_title = f"转换文档_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_filename = f"{sanitized_title}.docx"
+        output_path = os.path.join("/app/generated_docs", output_filename)
+        
+        # 确保目录存在
+        os.makedirs("/app/generated_docs", exist_ok=True)
+        
+        # 保存文档
+        doc.save(output_path)
+        logger.info(f"文档保存成功: {output_path}")
+        
+        # 将生成的文档保存到数据库管理
+        try:
+            import hashlib
+            with open(output_path, 'rb') as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
             
-        # 分页符
-        if not is_last_file:
-            main_doc.add_page_break()
-
-    # 保存
-    output_filename = f"{document_title}.docx"
-    output_path = os.path.join("/app/generated_docs", output_filename)
-    os.makedirs("/app/generated_docs", exist_ok=True)
-    composer.save(output_path)
-    logger.info(f"文档保存成功: {output_path}")
-    shutil.rmtree(temp_dir)
-    
-    # 返回下载URL
-    download_url = f"/api/download/{output_filename}"
-    
-    return {
-        "success": True, 
-        "message": "转换成功", 
-        "output_file": output_filename,
-        "download_url": download_url,
-        "processed_files": file_names
-    }
+            file_size = os.path.getsize(output_path)
+            
+            generated_doc = ManagedFile(
+                original_filename=output_filename,
+                display_name=f"转换文档_{document_title}",
+                storage_path=output_path,
+                file_type='document',
+                mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                file_size=file_size,
+                file_hash=file_hash,
+                file_category="temporary_generated",  # 生成的临时文件
+                category="conversion_result",
+                description=f"由{len(file_paths)}个文件转换生成",
+                expires_at=datetime.now() + timedelta(days=180),  # 180天过期
+                access_count=0,
+                last_accessed=datetime.now()
+            )
+            db.add(generated_doc)
+            db.commit()
+            logger.info(f"生成文档已保存到数据库管理: {output_filename}")
+        except Exception as db_save_err:
+            logger.warning(f"保存生成文档到数据库失败: {db_save_err}")
+        
+        # 清理临时文件
+        import shutil
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        
+        # 统计处理结果
+        failed_count = sum(1 for r in results if not r.get("success", True))
+        success_count = len(results) - failed_count
+        
+        # 记录历史
+        china_tz = pytz.timezone('Asia/Shanghai')
+        china_time = datetime.now(china_tz)
+        
+        history_item = {
+            "document_title": document_title,
+            "output_file": output_filename,
+            "file_count": len(file_paths),
+            "created_at": china_time.strftime('%Y-%m-%d %H:%M:%S'),
+            "status": "success" if failed_count == 0 else "partial",
+            "processed_files": processed_files,
+            "success_count": success_count,
+            "failed_count": failed_count
+        }
+        
+        try:
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            else:
+                history = []
+            history.insert(0, history_item)
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(history[:100], f, ensure_ascii=False, indent=2)
+        except Exception as hist_err:
+            logger.error(f"写入转换历史失败: {hist_err}")
+        
+        return {
+            "success": failed_count == 0,
+            "message": f"文件转换完成 - 成功: {success_count}, 失败: {failed_count}",
+            "output_file": output_filename,
+            "processed_files": processed_files,
+            "download_url": f"/api/download/{output_filename}",
+            "success_count": success_count,
+            "failed_count": failed_count
+        }
+        
+    except Exception as e:
+        logger.error(f"文件转换失败: {str(e)}")
+        
+        # 记录异常失败历史
+        try:
+            china_tz = pytz.timezone('Asia/Shanghai')
+            china_time = datetime.now(china_tz)
+            
+            history_item = {
+                "document_title": document_title,
+                "output_file": "",
+                "file_count": len(files),
+                "created_at": china_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "status": "error",
+                "error_message": str(e),
+                "processed_files": [f"错误: {file.filename}" for file in files]
+            }
+            
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            else:
+                history = []
+            history.insert(0, history_item)
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(history[:100], f, ensure_ascii=False, indent=2)
+        except Exception as hist_err:
+            logger.error(f"写入异常历史失败: {hist_err}")
+        
+        return {"success": False, "message": f"转换失败: {str(e)}"}
 
 @app.get("/api/convert-history")
 async def get_convert_history():
@@ -1521,7 +1791,7 @@ def create_project(project: ProjectCreate, db: Session = Depends(get_db)):
         db.add(db_project)
         db.commit()
         db.refresh(db_project)
-        return {"success": True, "message": "项目创建成功", "data": {"id": db_project.id}}
+        return {"success": True, "message": "项目创建成功"}
     except Exception as e:
         db.rollback()
         logger.error(f"创建项目失败: {e}")
@@ -1769,186 +2039,8 @@ def add_watermark_to_pdf(pdf_path: str, text: str, font_size: int, angle: int, o
         return pdf_path  # 如果失败，返回原PDF路径
 
 def add_watermark_to_existing_document(doc, text, font_size, angle, opacity, color, position):
-    """为Word文档添加水印"""
-    if not text or not text.strip():
-        return
-    
-    try:
-        # 转换颜色
-        def hex_to_rgb(hex_color):
-            hex_color = hex_color.lstrip('#')
-            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        
-        rgb_color = hex_to_rgb(color)
-        # 应用透明度
-        opacity = max(0.0, min(1.0, opacity / 100.0))
-        rgb_color = tuple(int(c * opacity + 255 * (1 - opacity)) for c in rgb_color)
-        
-        # 根据位置添加水印
-        if position == "center":
-            _add_center_watermark(doc, text, font_size, rgb_color, angle)
-        elif position == "repeat":
-            _add_repeat_watermark(doc, text, font_size, rgb_color, angle)
-        elif position == "background":
-            _add_background_watermark(doc, text, font_size, rgb_color, angle)
-        elif position in ["top-left", "top-right", "bottom-left", "bottom-right"]:
-            _add_corner_watermark(doc, text, font_size, rgb_color, angle, position)
-        
-        logger.info(f"水印添加成功: {text}")
-        
-    except Exception as e:
-        logger.error(f"添加水印失败: {e}")
-
-def _add_center_watermark(doc, text, font_size, rgb_color, angle):
-    """添加居中大水印"""
-    # 在文档中央位置插入水印
-    for i in range(8):
-        doc.add_paragraph()
-    
-    # 根据角度应用装饰
-    if angle == 0:
-        decorated_text = text
-    elif angle > 0:
-        decorated_text = f"╱ {text} ╱"
-    else:
-        decorated_text = f"╲ {text} ╲"
-    
-    # 上装饰边框
-    border_para1 = doc.add_paragraph()
-    border_para1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    border1_run = border_para1.add_run("◆" * 20)
-    border1_run.font.size = Pt(max(8, font_size // 3))
-    border1_run.font.color.rgb = RGBColor(*rgb_color)
-    border1_run.font.name = '楷体'
-    
-    # 主水印段落
-    watermark_para = doc.add_paragraph()
-    watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    main_run = watermark_para.add_run(f"『 {decorated_text} 』")
-    main_run.font.size = Pt(font_size * 2)
-    main_run.font.color.rgb = RGBColor(*rgb_color)
-    main_run.font.bold = True
-    main_run.font.name = '楷体'
-    
-    # 下装饰边框
-    border_para2 = doc.add_paragraph()
-    border_para2.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    border2_run = border_para2.add_run("◇" * 20)
-    border2_run.font.size = Pt(max(8, font_size // 3))
-    border2_run.font.color.rgb = RGBColor(*rgb_color)
-    border2_run.font.name = '楷体'
-
-def _add_repeat_watermark(doc, text, font_size, rgb_color, angle):
-    """添加重复平铺水印"""
-    current_length = len(doc.paragraphs)
-    watermark_positions = []
-    for i in range(5, max(50, current_length + 30), 12):
-        watermark_positions.append(i)
-    
-    if angle == 0:
-        decorated_text = text
-    elif angle > 0:
-        decorated_text = f"╱ {text} ╱"
-    else:
-        decorated_text = f"╲ {text} ╲"
-    
-    for pos in watermark_positions:
-        while len(doc.paragraphs) < pos:
-            doc.add_paragraph()
-        
-        watermark_para = doc.add_paragraph()
-        watermark_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        repeat_text = f"◆ {decorated_text} ◆   ◇ {decorated_text} ◇   ◆ {decorated_text} ◆"
-        watermark_run = watermark_para.add_run(repeat_text)
-        watermark_run.font.size = Pt(font_size)
-        watermark_run.font.color.rgb = RGBColor(*rgb_color)
-        watermark_run.font.bold = True
-        watermark_run.italic = True
-        watermark_run.font.name = '楷体'
-        
-        deco_para = doc.add_paragraph()
-        deco_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        deco_run = deco_para.add_run("~ " * 15)
-        deco_run.font.size = Pt(max(8, font_size // 2))
-        deco_run.font.color.rgb = RGBColor(*rgb_color)
-        deco_run.font.name = '楷体'
-
-def _add_background_watermark(doc, text, font_size, rgb_color, angle):
-    """添加背景样式水印"""
-    if angle == 0:
-        decorated_text = text
-    elif angle > 0:
-        decorated_text = f"╱ {text} ╱"
-    else:
-        decorated_text = f"╲ {text} ╲"
-    
-    for row in range(12):
-        bg_para = doc.add_paragraph()
-        bg_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        if row == 5:  # 中心主水印
-            bg_run = bg_para.add_run(f"【 {decorated_text} 】")
-            bg_run.font.size = Pt(font_size * 2)
-            bg_run.font.bold = True
-        elif row == 2 or row == 8:  # 副水印行
-            bg_run = bg_para.add_run(f"◆ {decorated_text} ◆")
-            bg_run.font.size = Pt(font_size)
-            bg_run.font.bold = True
-        elif row % 2 == 0:  # 装饰行
-            bg_run = bg_para.add_run("～ ～ ～ ～ ～ ～ ～ ～ ～ ～")
-            bg_run.font.size = Pt(max(8, font_size // 2))
-        else:  # 空行，只有少量装饰
-            bg_run = bg_para.add_run("· · · · ·")
-            bg_run.font.size = Pt(max(6, font_size // 3))
-        
-        bg_run.font.color.rgb = RGBColor(*rgb_color)
-        bg_run.font.name = '楷体'
-
-def _add_corner_watermark(doc, text, font_size, rgb_color, angle, position):
-    """添加角落位置水印"""
-    if angle == 0:
-        decorated_text = text
-    elif angle > 0:
-        decorated_text = f"╱ {text} ╱"
-    else:
-        decorated_text = f"╲ {text} ╲"
-    
-    if position == "top-left":
-        alignment = WD_ALIGN_PARAGRAPH.LEFT
-        prefix_lines = 2
-    elif position == "top-right":
-        alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        prefix_lines = 2
-    elif position == "bottom-left":
-        alignment = WD_ALIGN_PARAGRAPH.LEFT
-        prefix_lines = 15
-    elif position == "bottom-right":
-        alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        prefix_lines = 15
-    else:
-        alignment = WD_ALIGN_PARAGRAPH.CENTER
-        prefix_lines = 8
-    
-    for i in range(prefix_lines):
-        doc.add_paragraph()
-    
-    watermark_para = doc.add_paragraph()
-    watermark_para.alignment = alignment
-    
-    watermark_run = watermark_para.add_run(f"◆ {decorated_text} ◆")
-    watermark_run.font.size = Pt(font_size)
-    watermark_run.font.color.rgb = RGBColor(*rgb_color)
-    watermark_run.font.bold = True
-    watermark_run.font.name = '楷体'
-    
-    deco_para = doc.add_paragraph()
-    deco_para.alignment = alignment
-    deco_run = deco_para.add_run("━" * 10)
-    deco_run.font.size = Pt(max(8, font_size // 3))
-    deco_run.font.color.rgb = RGBColor(*rgb_color)
-    deco_run.font.name = '楷体'
+    """废弃 - 现在在PDF阶段处理水印"""
+    pass
 
 # 添加分类提示词设置管理API
 @app.get("/api/settings/classification-prompts")

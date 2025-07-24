@@ -89,6 +89,12 @@ const routes = isProduction ? [
     props: true
   },
   {
+    path: '/bid-document-maker',
+    name: 'BidDocumentMaker',
+    component: () => import('@/views/BidDocumentMaker.vue'),
+    meta: { title: '投标文件制作' }
+  },
+  {
     path: '/awards/new',
     name: 'CreateAward',
     component: () => import('@/views/awards/AwardForm.vue'),

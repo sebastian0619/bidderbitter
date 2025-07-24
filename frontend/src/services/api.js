@@ -173,7 +173,13 @@ export const apiService = {
 
   // 创建项目
   createProject(data) {
-    return api.post('/projects', data)
+    return api.post('/projects', data).then(response => {
+      // 确保返回结构一致
+      if (response && response.id) {
+        return { success: true, data: response }
+      }
+      return response
+    })
   },
 
   // 更新项目
@@ -242,6 +248,51 @@ export const apiService = {
   // 生成项目文档
   generateProjectDocument(projectId) {
     return api.post(`/projects/${projectId}/generate`)
+  },
+
+  // ==================== 投标文档管理 ====================
+
+  // 分析招标文件
+  analyzeTenderDocument(file, projectId = null) {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (projectId) {
+      formData.append('project_id', projectId)
+    }
+    return api.post('/bid-documents/analyze-tender-document', formData)
+  },
+
+  // 获取投标文档模板
+  getBidTemplates(templateType = null) {
+    const params = templateType ? { template_type: templateType } : {}
+    return api.get('/bid-documents/templates', { params })
+  },
+
+  // 生成投标文档
+  generateBidDocument(generationConfig) {
+    return api.post('/bid-documents/generate', generationConfig)
+  },
+
+  // 获取项目章节
+  getProjectSections(projectId) {
+    return api.get(`/bid-documents/projects/${projectId}/sections`)
+  },
+
+  // 创建投标章节
+  createBidSection(projectId, sectionData) {
+    return api.post(`/bid-documents/projects/${projectId}/sections`, sectionData)
+  },
+
+  // 预览投标文档
+  previewBidDocument(projectId) {
+    return api.get(`/bid-documents/projects/${projectId}/preview`)
+  },
+
+  // 下载投标文档
+  downloadBidDocument(documentId) {
+    return api.get(`/bid-documents/download/${documentId}`, {
+      responseType: 'blob'
+    })
   },
 
   // ==================== 模板管理 ====================

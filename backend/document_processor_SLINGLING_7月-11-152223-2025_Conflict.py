@@ -94,7 +94,7 @@ class DoclingDocumentProcessor:
     def __init__(self):
         self.converter = self._create_converter()
     
-    def _format_heading(self, doc, text, level=1, center=False, enable_numbering=False):
+    def _format_heading(self, doc, text, level=1, center=False):
         """
         创建格式化的标题
         
@@ -103,7 +103,6 @@ class DoclingDocumentProcessor:
         - text: 标题文字
         - level: 标题级别 (0=主标题, 1=一级标题, 2=二级标题)
         - center: 是否居中
-        - enable_numbering: 是否启用有序列表编号（仅对二级标题有效）
         
         返回:
         - 格式化的标题段落
@@ -119,49 +118,29 @@ class DoclingDocumentProcessor:
         if center or level == 0:
             heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # 处理编号设置
+        # 清除段落的列表样式和项目符号，防止出现小黑点
         try:
-            # 获取段落属性
+            # 清除段落的编号和项目符号
             pPr = heading._element.get_or_add_pPr()
             
-            if enable_numbering and level == 2:
-                # 为二级标题设置有序列表编号
-                # 创建编号属性
-                numPr = parse_xml('''<w:numPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                    <w:ilvl w:val="0"/>
-                    <w:numId w:val="1"/>
-                </w:numPr>''')
+            # 移除编号属性
+            numPr = pPr.find(qn('w:numPr'))
+            if numPr is not None:
+                pPr.remove(numPr)
+            
+            # 设置段落格式，明确禁用列表样式和分页控制
+            if hasattr(heading, 'paragraph_format'):
+                heading.paragraph_format.left_indent = None
+                heading.paragraph_format.first_line_indent = None
                 
-                # 移除现有的编号属性（如果有）
-                existing_numPr = pPr.find(qn('w:numPr'))
-                if existing_numPr is not None:
-                    pPr.remove(existing_numPr)
-                
-                # 添加新的编号属性
-                pPr.append(numPr)
-                
-                # 确保文档有编号定义
-                self._ensure_numbering_definition(doc)
-                
-            else:
-                # 清除段落的编号和项目符号，防止出现小黑点
-                numPr = pPr.find(qn('w:numPr'))
-                if numPr is not None:
-                    pPr.remove(numPr)
-                
-                # 设置段落格式，明确禁用列表样式和分页控制
-                if hasattr(heading, 'paragraph_format'):
-                    heading.paragraph_format.left_indent = None
-                    heading.paragraph_format.first_line_indent = None
-                    
-                    # 禁用分页控制选项，对应Word中的"分页"设置
-                    heading.paragraph_format.widow_control = False      # 孤行控制
-                    heading.paragraph_format.keep_with_next = False     # 与下段同页
-                    heading.paragraph_format.keep_together = False      # 段中不分页
-                    heading.paragraph_format.page_break_before = False  # 段前分页
+                # 禁用分页控制选项，对应Word中的"分页"设置
+                heading.paragraph_format.widow_control = False      # 孤行控制
+                heading.paragraph_format.keep_with_next = False     # 与下段同页
+                heading.paragraph_format.keep_together = False      # 段中不分页
+                heading.paragraph_format.page_break_before = False  # 段前分页
                 
         except Exception as style_error:
-            logger.warning(f"设置标题样式时出错: {style_error}")
+            logger.warning(f"清除标题样式时出错: {style_error}")
         
         # 设置字体
         if heading.runs:
@@ -192,52 +171,6 @@ class DoclingDocumentProcessor:
             run._element.rPr.rFonts.set(qn('w:hAnsi'), 'Times New Roman')
         
         return heading
-    
-    def _ensure_numbering_definition(self, doc):
-        """确保文档有编号定义"""
-        try:
-            from docx.oxml.shared import qn
-            
-            # 检查是否已经有编号定义
-            numbering_part = doc.part.numbering_part
-            if numbering_part is None:
-                # 创建编号部分
-                numbering_part = doc.part.get_or_add_part('word/numbering.xml', 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml')
-            
-            # 检查是否已经有编号定义
-            numbering = numbering_part.numbering
-            if numbering is None:
-                # 创建编号定义
-                numbering = parse_xml('''
-                <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                    <w:abstractNum w:abstractNumId="0">
-                        <w:nsid w:val="12345678"/>
-                        <w:multiLevelType w:val="hybridMultilevel"/>
-                        <w:lvl w:ilvl="0">
-                            <w:start w:val="1"/>
-                            <w:numFmt w:val="decimal"/>
-                            <w:lvlText w:val="%1."/>
-                            <w:lvlJc w:val="left"/>
-                            <w:pPr>
-                                <w:ind w:left="720" w:hanging="360"/>
-                            </w:pPr>
-                            <w:rPr>
-                                <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="楷体"/>
-                                <w:sz w:val="28"/>
-                                <w:szCs w:val="28"/>
-                                <w:b/>
-                            </w:rPr>
-                        </w:lvl>
-                    </w:abstractNum>
-                    <w:num w:numId="1">
-                        <w:abstractNumId w:val="0"/>
-                    </w:num>
-                </w:numbering>
-                ''')
-                numbering_part._element = numbering
-                
-        except Exception as e:
-            logger.warning(f"创建编号定义失败: {e}")
     
     def _calculate_image_size_for_page(self, image_path: str, page_num: int, has_file_title: bool, max_height_inches: float = 8.0) -> Tuple[object, bool]:
         """
@@ -419,12 +352,12 @@ class DoclingDocumentProcessor:
             except Exception as fallback_error:
                 doc.add_paragraph(f"图片处理失败: {str(fallback_error)}")
     
-    async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
+    async def process_pdf_with_docling(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """使用DoclingService处理PDF文件 - 充分利用Docling的文档理解能力"""
         try:
             if not self.converter:
                 logger.warning("DoclingService不可用，使用PyMuPDF备选方案")
-                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
             logger.info(f"开始使用DoclingService处理PDF: {filename}")
             
@@ -435,19 +368,19 @@ class DoclingDocumentProcessor:
             # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
                 filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
             if pdf_type == "scanned":
                 # 扫描件PDF：使用Docling进行OCR和文本提取
-                return await self._process_scanned_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+                return await self._process_scanned_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             else:
                 # 非扫描件PDF：直接转换为图片，保持原始格式
-                return await self._process_native_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+                return await self._process_native_pdf(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
         except Exception as e:
             logger.error(f"DoclingService处理PDF失败: {e}")
             # 降级到PyMuPDF
-            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
     
     async def _detect_pdf_type(self, pdf_path: str) -> str:
         """检测PDF类型：扫描件 vs 非扫描件"""
@@ -501,7 +434,7 @@ class DoclingDocumentProcessor:
             logger.warning(f"PDF类型检测失败: {e}，默认按非扫描件处理")
             return "native"
     
-    async def _process_scanned_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
+    async def _process_scanned_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """处理扫描件PDF：使用Docling进行OCR和文本提取"""
         try:
             logger.info(f"处理扫描件PDF: {filename}")
@@ -511,7 +444,7 @@ class DoclingDocumentProcessor:
             
             if not conv_result.get("success"):
                 logger.warning(f"DoclingService转换失败: {conv_result.get('error')}")
-                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+                return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
             
             # 添加文档内容
             text_content = conv_result.get("text", "")
@@ -555,59 +488,88 @@ class DoclingDocumentProcessor:
             
         except Exception as e:
             logger.error(f"扫描件PDF处理失败: {e}")
-            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
     
-    async def _process_native_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
+    async def _process_native_pdf(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """处理非扫描件PDF：直接转换为图片，保持原始格式"""
         try:
             logger.info(f"处理非扫描件PDF: {filename}")
-            # 只根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
-            if show_file_titles:
-                filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
-            # 不再插入文档说明和PDF页面内容
+            
+            # 添加处理说明
+            info_heading = create_clean_heading(doc, "文档说明", level=2)
+            info_para = doc.add_paragraph()
+            info_para.add_run("此PDF文档包含可编辑文本，为保持原始格式，已转换为图片形式展示。")
+            info_para.add_run("\n如需编辑文本内容，请使用原始PDF文件。")
+            
+            # 直接转换为图片并插入
             await self._add_page_screenshots_enhanced(doc, pdf_path, is_last_file)
+            
+            # 在PDF处理完成后添加分页符（除非是最后一个文件）
             if not is_last_file:
                 doc.add_page_break()
                 logger.info(f"非扫描件PDF处理完成，已添加分页符: {filename}")
             else:
                 logger.info(f"非扫描件PDF处理完成，跳过分页符（最后一个文件）: {filename}")
+            
             return {
                 "success": True,
                 "message": "非扫描件PDF处理成功（图片格式保持）",
                 "text_extracted": False,
                 "pdf_type": "native"
             }
+            
         except Exception as e:
             logger.error(f"非扫描件PDF处理失败: {e}")
-            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file, enable_numbering)
+            return await self._process_pdf_fallback(pdf_path, doc, filename, watermark_config, show_file_titles, file_title_level, is_last_file)
     
     async def _add_page_screenshots_enhanced(self, doc: Document, pdf_path: str, is_last_file: bool = False):
         """增强的PDF页面截图功能，专门用于非扫描件PDF"""
         try:
             import fitz
+            
+            create_clean_heading(doc, "PDF页面内容", level=2)
+            
             pdf_document = fitz.open(pdf_path)
             total_pages = len(pdf_document)
+            
             for page_num in range(total_pages):
                 page = pdf_document.load_page(page_num)
-                mat = fitz.Matrix(3.0, 3.0)
+                
+                # 使用更高分辨率确保文本清晰
+                mat = fitz.Matrix(3.0, 3.0)  # 提高分辨率到3倍
                 pix = page.get_pixmap(matrix=mat)
+                
                 temp_image_path = f"temp_native_page_{page_num + 1}_{uuid.uuid4().hex[:8]}.png"
                 pix.save(temp_image_path)
+                
                 try:
-                    # 不再插入PDF页面内容标题
-                    image_width, _ = self._calculate_image_size_for_page(temp_image_path, page_num, True, max_height_inches=9.0)
+                    # 添加页码标题
+                    page_heading = create_clean_heading(doc, f"第 {page_num + 1} 页(共 {total_pages} 页)", level=4)
+                    
+                    # 智能计算图片大小 - 非扫描件使用更大的尺寸
+                    image_width, _ = self._calculate_image_size_for_page(
+                        temp_image_path, page_num, True, max_height_inches=9.0  # 增加最大高度
+                    )
+                    
+                    # 添加图片（居中对齐）
                     img_para = doc.add_paragraph()
                     img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     img_para.add_run().add_picture(temp_image_path, width=image_width)
+                    
+                    # 只在不是最后一页时添加分页符
                     if page_num < total_pages - 1:
                         doc.add_page_break()
+                    
                 except Exception as img_error:
                     logger.warning(f"添加第{page_num + 1}页截图失败: {img_error}")
                     doc.add_paragraph(f"第{page_num + 1}页图像处理失败")
+                
+                # 清理临时文件
                 if os.path.exists(temp_image_path):
                     os.remove(temp_image_path)
+            
             pdf_document.close()
+                
         except Exception as e:
             logger.error(f"增强页面截图失败: {e}")
             doc.add_paragraph(f"PDF页面处理失败: {str(e)}")
@@ -664,7 +626,7 @@ class DoclingDocumentProcessor:
         except Exception as e:
             logger.error(f"添加页面截图失败: {e}")
     
-    async def _process_pdf_fallback(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
+    async def _process_pdf_fallback(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """使用PyMuPDF作为备选方案处理PDF"""
         try:
             logger.info(f"使用PyMuPDF处理PDF: {filename}")
@@ -672,7 +634,7 @@ class DoclingDocumentProcessor:
             # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
                 filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
             pdf_document = fitz.open(pdf_path)
             total_pages = len(pdf_document)
@@ -721,7 +683,7 @@ class DoclingDocumentProcessor:
                 "message": f"PDF处理失败: {str(e)}"
             }
     
-    async def process_image(self, image_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
+    async def process_image(self, image_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False):
         """处理图片文件 - 使用Docling进行智能处理"""
         try:
             logger.info(f"处理图片: {filename}")
@@ -729,7 +691,7 @@ class DoclingDocumentProcessor:
             # 根据show_file_titles参数决定是否添加文件标题（直接显示文件名，不加前缀，去掉扩展名）
             if show_file_titles:
                 filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
+                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False)
             
             # 尝试使用DoclingService处理图片
             if self.converter:
@@ -872,7 +834,7 @@ class DoclingDocumentProcessor:
                     results.append(result)
                 elif file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff']:
                     # 处理图片
-                    result = await self.process_image(file_path, doc, filename, None, True, 2, is_last_file, enable_numbering=False)
+                    result = await self.process_image(file_path, doc, filename, None, True, 2, is_last_file)
                     processed_files.append(f"图片: {filename}")
                     results.append(result)
                 else:
@@ -898,90 +860,6 @@ class DoclingDocumentProcessor:
             return {
                 "success": False,
                 "message": f"转换失败: {str(e)}"
-            }
-
-    # 在DoclingDocumentProcessor类中添加一个新的轻量级PDF处理方法
-    async def process_pdf_lightweight(self, pdf_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
-        """轻量级PDF处理 - 不使用Docling，只使用PyMuPDF进行图片转换"""
-        try:
-            logger.info(f"开始轻量级处理PDF: {filename}")
-            
-            # 根据show_file_titles参数决定是否添加文件标题
-            if show_file_titles:
-                filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
-            
-            # 直接使用PyMuPDF转换为图片
-            await self._add_page_screenshots_enhanced(doc, pdf_path, is_last_file)
-            
-            if not is_last_file:
-                doc.add_page_break()
-                logger.info(f"轻量级PDF处理完成，已添加分页符: {filename}")
-            else:
-                logger.info(f"轻量级PDF处理完成，跳过分页符（最后一个文件）: {filename}")
-            
-            return {
-                "success": True,
-                "message": "轻量级PDF处理成功（图片格式保持）",
-                "text_extracted": False,
-                "pdf_type": "lightweight"
-            }
-            
-        except Exception as e:
-            logger.error(f"轻量级PDF处理失败: {e}")
-            return {
-                "success": False,
-                "message": f"轻量级PDF处理失败: {str(e)}"
-            }
-
-    async def process_image_lightweight(self, image_path: str, doc: Document, filename: str, watermark_config: Dict[str, Any] = None, show_file_titles: bool = True, file_title_level: int = 2, is_last_file: bool = False, enable_numbering: bool = False):
-        """轻量级图片处理 - 不使用Docling，只进行基本的图片插入"""
-        try:
-            logger.info(f"开始轻量级处理图片: {filename}")
-            
-            # 根据show_file_titles参数决定是否添加文件标题
-            if show_file_titles:
-                filename_without_ext = os.path.splitext(filename)[0]
-                self._format_heading(doc, filename_without_ext, level=file_title_level, center=False, enable_numbering=enable_numbering)
-            
-            # 获取图片基本信息
-            with Image.open(image_path) as img:
-                width, height = img.size
-                doc.add_paragraph(f"尺寸: {width} x {height} 像素")
-                doc.add_paragraph(f"格式: {img.format}")
-                doc.add_paragraph(f"模式: {img.mode}")
-            
-            # 使用智能图片大小计算
-            try:
-                image_width, needs_page_break = self._calculate_image_size_for_page(
-                    image_path, 0, True
-                )
-            except Exception as e:
-                logger.warning(f"智能大小计算失败: {e}，使用默认方法")
-                image_width = self._calculate_image_width(0, True)
-            
-            # 添加图片（居中对齐）
-            img_para = doc.add_paragraph()
-            img_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            img_para.add_run().add_picture(image_path, width=image_width)
-            
-            # 只在不是最后一个文件时添加分页符
-            if not is_last_file:
-                doc.add_page_break()
-                logger.info(f"轻量级图片处理完成，已添加分页符: {filename}")
-            else:
-                logger.info(f"轻量级图片处理完成，跳过分页符（最后一个文件）: {filename}")
-            
-            return {
-                "success": True,
-                "message": "轻量级图片处理成功"
-            }
-            
-        except Exception as e:
-            logger.error(f"轻量级图片处理失败: {e}")
-            return {
-                "success": False,
-                "message": f"轻量级图片处理失败: {str(e)}"
             }
 
 # 创建全局实例
@@ -1390,7 +1268,7 @@ class DocumentProcessor:
                 if page_num > 0:  # 第一页不添加页面分隔标题
                     format_heading_standalone(doc, f"第 {page_num + 1} 页(共 {page_count} 页)", level=2, center=True)
                 
-                                # 对于扫描件PDF，尝试提取文本
+                # 对于扫描件PDF，尝试提取文本
                 if pdf_type == "scanned":
                     text = page.get_text()
                     if text.strip():
@@ -1419,8 +1297,13 @@ class DocumentProcessor:
                 if page_num == 0:
                     if pdf_type == "scanned":
                         img_width = Inches(5.5)  # 扫描件第一页适中大小
-                else:
+                    else:
                         img_width = Inches(6.0)  # 非扫描件第一页稍大
+                else:
+                    if pdf_type == "scanned":
+                        img_width = Inches(6.23)  # 扫描件非第一页使用15.83厘米
+                    else:
+                        img_width = Inches(6.5)  # 非扫描件非第一页使用更大尺寸
                 
                 img_para.add_run().add_picture(img_stream, width=img_width)
                 

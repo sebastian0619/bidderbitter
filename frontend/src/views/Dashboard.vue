@@ -29,6 +29,39 @@
 
     <!-- 页面内容区域 -->
     <div class="page-content">
+      <!-- 快速操作区域 -->
+      <div class="quick-actions">
+        <el-card class="action-card bid-document-maker">
+          <div class="action-content">
+            <div class="action-icon">
+              <el-icon><DocumentAdd /></el-icon>
+            </div>
+            <div class="action-text">
+              <h3>投标文件制作</h3>
+              <p>AI智能解析招标文件，自动生成投标文档</p>
+            </div>
+            <el-button type="primary" @click="goToBidDocumentMaker" class="action-btn">
+              开始制作
+            </el-button>
+          </div>
+        </el-card>
+        
+        <el-card class="action-card project-management">
+          <div class="action-content">
+            <div class="action-icon">
+              <el-icon><FolderOpened /></el-icon>
+            </div>
+            <div class="action-text">
+              <h3>项目管理</h3>
+              <p>管理投标项目，组织文档结构</p>
+            </div>
+            <el-button type="success" @click="goToProjects" class="action-btn">
+              管理项目
+            </el-button>
+          </div>
+        </el-card>
+      </div>
+
       <!-- 统计卡片 -->
       <div class="stats-grid">
         <div class="stat-card total-files">
@@ -1165,6 +1198,15 @@ const resetUploadForm = () => {
   }
 }
 
+// 导航方法
+const goToBidDocumentMaker = () => {
+  router.push('/bid-document-maker')
+}
+
+const goToProjects = () => {
+  router.push('/projects')
+}
+
 onMounted(async () => {
   await fetchFileStats()
   await fetchLawyerStats()
@@ -1316,6 +1358,116 @@ const handleTabChange = (tab) => {
   max-width: 1400px;
   margin: 0 auto;
   padding: 0 20px 40px;
+}
+
+// 快速操作区域
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.action-card {
+  border-radius: 16px;
+  border: none;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+  
+  &.bid-document-maker {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    color: white;
+    
+    .action-content {
+      color: white;
+    }
+    
+    .action-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+    
+    .action-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      
+      &:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+    }
+  }
+  
+  &.project-management {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    
+    .action-content {
+      color: white;
+    }
+    
+    .action-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+    
+    .action-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      
+      &:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+    }
+  }
+}
+
+.action-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 24px;
+}
+
+.action-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.action-text {
+  flex: 1;
+  
+  h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  
+  p {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.8;
+  }
+}
+
+.action-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.3s ease;
 }
 
 // 统计卡片网格

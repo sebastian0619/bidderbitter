@@ -1716,6 +1716,126 @@ class AIService:
                 "error": str(e)
             }
 
+    async def analyze_tender_document(self, file_path: str) -> Dict[str, Any]:
+        """分析招标文件，提取关键信息"""
+        try:
+            logger.info(f"开始分析招标文件: {file_path}")
+            
+            # 使用智能文档分析
+            analysis_result = await self.smart_document_analysis(file_path)
+            
+            if not analysis_result.get("success"):
+                return {"success": False, "error": "文档分析失败"}
+            
+            text_content = analysis_result.get("text_extraction_result", {}).get("text", "")
+            
+            if not text_content:
+                return {"success": False, "error": "无法提取文本内容"}
+            
+            # 使用AI提取招标信息
+            extracted_info = await self._extract_tender_info_with_ai(text_content)
+            
+            # 补充正则表达式提取
+            regex_info = self._extract_tender_info_with_regex(text_content)
+            
+            # 合并结果
+            final_info = {**regex_info, **extracted_info}
+            
+            logger.info(f"招标信息提取完成: {final_info}")
+            return {
+                "success": True,
+                "extracted_info": final_info,
+                "text_content": text_content[:1000] + "..." if len(text_content) > 1000 else text_content
+            }
+            
+        except Exception as e:
+            logger.error(f"分析招标文件失败: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def _extract_tender_info_with_ai(self, text_content: str) -> Dict[str, str]:
+        """使用AI提取招标信息"""
+        try:
+            prompt = f"""
+请从以下招标文件文本中提取关键信息，以JSON格式返回：
+
+{text_content[:3000]}
+
+请提取以下字段：
+- tender_company: 招标人/采购人名称
+- tender_agency: 招标代理机构名称
+- bidder_name: 投标人名称（如果有）
+- legal_representative: 法定代表人
+- authorized_representative: 授权代表
+- deadline: 投标截止时间
+- project_name: 项目名称
+- project_budget: 项目预算金额
+- business_scope: 业务范围
+
+只返回JSON格式，不要其他内容。
+"""
+            
+            result = await self.analyze_text(prompt)
+            if result.get("success"):
+                try:
+                    # 尝试解析AI返回的JSON
+                    ai_result = json.loads(result.get("content", "{}"))
+                    return {k: v for k, v in ai_result.items() if v}
+                except json.JSONDecodeError:
+                    logger.warning("AI返回结果不是有效的JSON格式")
+                    return {}
+            return {}
+            
+        except Exception as e:
+            logger.error(f"AI提取招标信息失败: {str(e)}")
+            return {}
+
+    def _extract_tender_info_with_regex(self, text_content: str) -> Dict[str, str]:
+        """使用正则表达式提取招标信息"""
+        extracted_info = {}
+        
+        # 招标信息提取字段配置
+        tender_info_fields = {
+            "tender_company": ["招标人", "采购人", "业主", "甲方"],
+            "tender_agency": ["招标代理", "代理机构", "招标代理机构"],
+            "bidder_name": ["投标人", "供应商", "乙方"],
+            "legal_representative": ["法定代表人", "法人代表", "代表"],
+            "authorized_representative": ["授权代表", "委托代理人"],
+            "deadline": ["投标截止", "截止时间", "投标截止时间", "开标时间"],
+            "project_name": ["项目名称", "工程名称", "采购项目"],
+            "project_budget": ["预算", "预算金额", "项目预算"],
+            "business_scope": ["业务范围", "服务范围", "工作内容"]
+        }
+        
+        # 提取招标人
+        for pattern in tender_info_fields["tender_company"]:
+            match = re.search(f"{pattern}[：:]*([^\\n\\r]+)", text_content)
+            if match:
+                extracted_info["tender_company"] = match.group(1).strip()
+                break
+        
+        # 提取招标代理
+        for pattern in tender_info_fields["tender_agency"]:
+            match = re.search(f"{pattern}[：:]*([^\\n\\r]+)", text_content)
+            if match:
+                extracted_info["tender_agency"] = match.group(1).strip()
+                break
+        
+        # 提取投标截止时间
+        for pattern in tender_info_fields["deadline"]:
+            match = re.search(f"{pattern}[：:]*([^\\n\\r]+)", text_content)
+            if match:
+                extracted_info["deadline"] = match.group(1).strip()
+                break
+        
+        # 提取项目名称
+        for pattern in tender_info_fields["project_name"]:
+            match = re.search(f"{pattern}[：:]*([^\\n\\r]+)", text_content)
+            if match:
+                extracted_info["project_name"] = match.group(1).strip()
+                break
+        
+        return extracted_info
+
     async def _extract_tags_from_content(self, text_content: str) -> List[str]:
         """从内容中提取标签"""
         try:
