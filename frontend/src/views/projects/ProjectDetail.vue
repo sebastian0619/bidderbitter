@@ -214,24 +214,77 @@ const removeFile = async (file) => {
   }
 }
 
-const addSection = () => {
-  // TODO: 实现添加章节
-  ElMessage.info('功能开发中')
+const addSection = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入章节名称', '添加章节', {
+      inputPlaceholder: '例如: 业绩证明材料',
+      confirmButtonText: '添加',
+      cancelButtonText: '取消'
+    })
+    if (value) {
+      await projectApi.addSection(project.value.id, value)
+      ElMessage.success('章节添加成功')
+      loadProject()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('添加失败')
+    }
+  }
 }
 
-const editSection = (section) => {
-  // TODO: 实现编辑章节
-  ElMessage.info('功能开发中')
+const editSection = async (section) => {
+  try {
+    const { value } = await ElMessageBox.prompt('修改章节名称', '编辑章节', {
+      inputValue: section.title,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消'
+    })
+    if (value) {
+      await projectApi.updateSection(project.value.id, section.id, value)
+      ElMessage.success('章节更新成功')
+      loadProject()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('更新失败')
+    }
+  }
 }
 
 const deleteSection = async (section) => {
-  // TODO: 实现删除章节
-  ElMessage.info('功能开发中')
+  try {
+    await ElMessageBox.confirm(`确定删除章节 "${section.title}"？`, '确认删除', {
+      type: 'warning'
+    })
+    await projectApi.deleteSection(project.value.id, section.id)
+    ElMessage.success('章节删除成功')
+    loadProject()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
-const generateDocument = () => {
-  // TODO: 实现生成投标文件
-  ElMessage.info('功能开发中')
+const generating = ref(false)
+
+const generateDocument = async () => {
+  generating.value = true
+  try {
+    const res = await projectApi.generate(project.value.id)
+    if (res.data.success) {
+      ElMessage.success('投标文档生成成功')
+      // 下载文件
+      window.open(res.data.download_url, '_blank')
+    } else {
+      ElMessage.error(res.data.error || '生成失败')
+    }
+  } catch (error) {
+    ElMessage.error('生成失败: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    generating.value = false
+  }
 }
 
 onMounted(() => {

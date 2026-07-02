@@ -107,6 +107,32 @@ export const projectApi = {
   
   removeFile(projectId, fileId) {
     return api.delete(`/projects/${projectId}/files/${fileId}`)
+  },
+  
+  // 章节管理
+  getSections(projectId) {
+    return api.get(`/projects/${projectId}/sections`)
+  },
+  
+  addSection(projectId, title, sectionType, description) {
+    return api.post(`/projects/${projectId}/sections`, null, { 
+      params: { title, section_type: sectionType, description } 
+    })
+  },
+  
+  updateSection(projectId, sectionId, title) {
+    return api.put(`/projects/${projectId}/sections/${sectionId}`, null, { 
+      params: { title } 
+    })
+  },
+  
+  deleteSection(projectId, sectionId) {
+    return api.delete(`/projects/${projectId}/sections/${sectionId}`)
+  },
+  
+  // 生成投标文档
+  generate(projectId) {
+    return api.post(`/projects/${projectId}/generate`)
   }
 }
 

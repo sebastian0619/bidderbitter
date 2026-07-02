@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 
 from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files
+from ai_classifier import ai_classifier
 
 app = FastAPI(title="BidTool API", version="0.1.0")
 
@@ -672,22 +673,22 @@ async def classify_file(file_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     try:
-        # 基于文件名和内容进行分类
-        category, confidence, tags = classify_file_content(file)
+        # 使用 AI 分类服务
+        result = ai_classifier.classify_by_rules(file.original_filename)
         
         # 更新文件信息
-        file.ai_category = category
-        file.ai_confidence = confidence
-        file.category = category
+        file.ai_category = result["category"]
+        file.ai_confidence = result["confidence"]
+        file.category = result["category"]
+        file.ai_analysis = result
         file.is_processed = True
         file.processing_status = "completed"
         
         # 自动添加标签
-        for tag_name in tags:
+        for tag_name in result["tags"]:
             tag = db.query(Tag).filter(Tag.name == tag_name).first()
             if not tag:
-                # 创建新标签
-                tag = Tag(name=tag_name, category="auto", color="#67C23A")
+                tag = Tag(name=tag_name, category="auto", color=result.get("color", "#67C23A"))
                 db.add(tag)
             if tag not in file.tags:
                 file.tags.append(tag)
@@ -695,9 +696,11 @@ async def classify_file(file_id: int, db: Session = Depends(get_db)):
         db.commit()
         
         return {
-            "category": category,
-            "confidence": confidence,
-            "tags": tags,
+            "category": result["category"],
+            "confidence": result["confidence"],
+            "tags": result["tags"],
+            "matched_keywords": result.get("matched_keywords", []),
+            "method": result["method"],
             "message": "分类完成"
         }
     except Exception as e:
@@ -753,29 +756,158 @@ async def batch_classify_files(
     db: Session = Depends(get_db)
 ):
     """批量分类文件"""
-    results = []
+    files_data = []
     for file_id in file_ids:
         file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
         if file:
-            category, confidence, tags = classify_file_content(file)
-            file.ai_category = category
-            file.ai_confidence = confidence
-            file.category = category
+            files_data.append({"id": file.id, "filename": file.original_filename})
+    
+    results = ai_classifier.classify_batch(files_data)
+    
+    for result in results:
+        file = db.query(ManagedFile).filter(ManagedFile.id == result["file_id"]).first()
+        if file:
+            file.ai_category = result["category"]
+            file.ai_confidence = result["confidence"]
+            file.category = result["category"]
             file.is_processed = True
             
-            # 添加标签
-            for tag_name in tags:
+            for tag_name in result["tags"]:
                 tag = db.query(Tag).filter(Tag.name == tag_name).first()
                 if not tag:
-                    tag = Tag(name=tag_name, category="auto", color="#67C23A")
+                    tag = Tag(name=tag_name, category="auto", color=result.get("color", "#67C23A"))
                     db.add(tag)
                 if tag not in file.tags:
                     file.tags.append(tag)
-            
-            results.append({"id": file_id, "category": category, "tags": tags})
     
     db.commit()
     return {"results": results, "message": f"分类了 {len(results)} 个文件"}
+
+# ==================== 投标文档生成 API ====================
+
+@app.post("/api/projects/{project_id}/generate")
+async def generate_bid_document(
+    project_id: int,
+    db: Session = Depends(get_db)
+):
+    """生成投标文档"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    # 获取项目的章节
+    sections = db.query(ProjectSection).filter(
+        ProjectSection.project_id == project_id
+    ).order_by(ProjectSection.order).all()
+    
+    # 如果没有章节，创建默认章节
+    if not sections:
+        default_sections = [
+            {"title": "投标函及投标函附录", "section_type": "cover", "order": 1},
+            {"title": "投标人资质证明", "section_type": "qualification", "order": 2},
+            {"title": "业绩证明材料", "section_type": "performance", "order": 3},
+            {"title": "项目团队介绍", "section_type": "team", "order": 4},
+            {"title": "服务方案", "section_type": "proposal", "order": 5},
+        ]
+        for s in default_sections:
+            section = ProjectSection(
+                project_id=project_id,
+                title=s["title"],
+                section_type=s["section_type"],
+                order=s["order"]
+            )
+            db.add(section)
+        db.commit()
+        sections = db.query(ProjectSection).filter(
+            ProjectSection.project_id == project_id
+        ).order_by(ProjectSection.order).all()
+    
+    # 获取项目的文件
+    files = project.managed_files
+    
+    # 生成文档
+    from bid_document_service import bid_document_service
+    result = bid_document_service.generate_bid_document(project, sections, files, db)
+    
+    if result["success"]:
+        return {
+            "success": True,
+            "filename": result["filename"],
+            "file_size": result["file_size"],
+            "download_url": f"/api/generated/{result['filename']}",
+            "message": "投标文档生成成功"
+        }
+    else:
+        raise HTTPException(status_code=500, detail=result["error"])
+
+@app.get("/api/generated/{filename}")
+async def download_generated_file(filename: str):
+    """下载生成的文件"""
+    file_path = Path("generated_docs") / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+@app.get("/api/projects/{project_id}/sections")
+async def list_project_sections(project_id: int, db: Session = Depends(get_db)):
+    """获取项目章节列表"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    sections = db.query(ProjectSection).filter(
+        ProjectSection.project_id == project_id
+    ).order_by(ProjectSection.order).all()
+    
+    return [
+        {
+            "id": s.id,
+            "title": s.title,
+            "section_type": s.section_type,
+            "description": s.description,
+            "order": s.order,
+        }
+        for s in sections
+    ]
+
+@app.post("/api/projects/{project_id}/sections")
+async def create_project_section(
+    project_id: int,
+    title: str,
+    section_type: Optional[str] = None,
+    description: Optional[str] = None,
+    order: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """创建项目章节"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    # 如果没有指定排序，放在最后
+    if order is None:
+        max_order = db.query(ProjectSection).filter(
+            ProjectSection.project_id == project_id
+        ).count()
+        order = max_order + 1
+    
+    section = ProjectSection(
+        project_id=project_id,
+        title=title,
+        section_type=section_type,
+        description=description,
+        order=order
+    )
+    db.add(section)
+    db.commit()
+    db.refresh(section)
+    
+    return {"id": section.id, "title": section.title}
 
 # ==================== 健康检查 ====================
 
