@@ -7,11 +7,12 @@ const api = axios.create({
 
 // 文件 API
 export const fileApi = {
-  upload(file, category, description) {
+  upload(file, category, description, saveToManager = true) {
     const formData = new FormData()
     formData.append('file', file)
     if (category) formData.append('category', category)
     if (description) formData.append('description', description)
+    formData.append('save_to_manager', saveToManager)
     return api.post('/files', formData)
   },
   

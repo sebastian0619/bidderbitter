@@ -38,9 +38,14 @@ async def upload_file(
     file: UploadFile = File(...),
     category: Optional[str] = None,
     description: Optional[str] = None,
+    save_to_manager: bool = True,
     db: Session = Depends(get_db)
 ):
-    """上传文件"""
+    """上传文件
+    
+    Args:
+        save_to_manager: 是否存入文件管理，默认为 True
+    """
     # 计算文件哈希
     content = await file.read()
     file_hash = hashlib.md5(content).hexdigest()
@@ -48,7 +53,11 @@ async def upload_file(
     # 检查是否已存在
     existing = db.query(ManagedFile).filter(ManagedFile.file_hash == file_hash).first()
     if existing:
-        raise HTTPException(status_code=409, detail="文件已存在")
+        # 如果已存在且需要存入管理，返回已有文件
+        if save_to_manager:
+            return {"id": existing.id, "filename": existing.original_filename, "size": existing.file_size}
+        # 如果不需要存入管理，直接返回临时文件信息
+        return {"id": existing.id, "filename": existing.original_filename, "size": existing.file_size, "temp": True}
     
     # 保存文件
     today = datetime.now()
@@ -70,23 +79,26 @@ async def upload_file(
     elif ext.lower() == ".pdf":
         file_type = "pdf"
     
-    # 创建数据库记录
-    db_file = ManagedFile(
-        original_filename=file.filename,
-        display_name=file.filename,
-        storage_path=str(file_path),
-        file_type=file_type,
-        mime_type=file.content_type,
-        file_size=len(content),
-        file_hash=file_hash,
-        category=category,
-        description=description,
-    )
-    db.add(db_file)
-    db.commit()
-    db.refresh(db_file)
-    
-    return {"id": db_file.id, "filename": db_file.original_filename, "size": db_file.file_size}
+    # 根据 save_to_manager 决定是否创建数据库记录
+    if save_to_manager:
+        db_file = ManagedFile(
+            original_filename=file.filename,
+            display_name=file.filename,
+            storage_path=str(file_path),
+            file_type=file_type,
+            mime_type=file.content_type,
+            file_size=len(content),
+            file_hash=file_hash,
+            category=category or "uploaded",
+            description=description,
+        )
+        db.add(db_file)
+        db.commit()
+        db.refresh(db_file)
+        return {"id": db_file.id, "filename": db_file.original_filename, "size": db_file.file_size}
+    else:
+        # 临时文件，返回文件路径作为 ID
+        return {"id": f"temp_{file_hash[:8]}", "filename": file.filename, "size": len(content), "temp": True, "path": str(file_path)}
 
 @app.get("/api/files")
 async def list_files(
