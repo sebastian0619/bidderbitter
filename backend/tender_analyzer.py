@@ -80,6 +80,50 @@ class TenderAnalyzer:
         "售后": "proposal",
     }
     
+    # 需要提交的材料类型及关键词
+    REQUIRED_MATERIALS = {
+        "资质证照": {
+            "keywords": ["营业执照", "执业许可证", "资质证书", "律师执业证", "律所执业证"],
+            "section_type": "qualification",
+            "description": "律所及律师资质证明文件"
+        },
+        "业绩证明": {
+            "keywords": ["业绩", "合同复印件", "服务协议", "项目经验", "类似项目", "同类项目"],
+            "section_type": "performance",
+            "description": "法律服务业绩合同等证明材料"
+        },
+        "团队资料": {
+            "keywords": ["项目负责人", "团队成员", "人员简历", "律师简历", "执业经验"],
+            "section_type": "team",
+            "description": "项目团队成员简历及资质"
+        },
+        "财务资料": {
+            "keywords": ["审计报告", "财务报表", "纳税证明", "社保缴纳", "财务状况"],
+            "section_type": "finance",
+            "description": "财务审计报告及纳税证明"
+        },
+        "公司介绍": {
+            "keywords": ["公司简介", "律所简介", "基本情况", "组织架构", "办公场所"],
+            "section_type": "company",
+            "description": "律所基本情况介绍"
+        },
+        "服务方案": {
+            "keywords": ["服务方案", "技术方案", "实施方案", "服务承诺", "工作计划"],
+            "section_type": "proposal",
+            "description": "法律服务方案及承诺"
+        },
+        "获奖荣誉": {
+            "keywords": ["获奖", "荣誉", "奖项", "排名", "评级"],
+            "section_type": "award",
+            "description": "法律行业获奖及排名证明"
+        },
+        "授权委托": {
+            "keywords": ["授权委托书", "法定代表人身份证明", "身份证复印件"],
+            "section_type": "authorization",
+            "description": "法定代表人证明及授权委托书"
+        }
+    }
+    
     def analyze_with_docx(self, file_path: str) -> Dict:
         """使用 python-docx 分析招标文件
         
@@ -115,10 +159,17 @@ class TenderAnalyzer:
             # 提取章节结构
             sections = self._extract_sections(doc)
             
+            # 分析需要提交的材料
+            required_materials = self._analyze_required_materials(text)
+            
+            # 合并章节和材料要求
+            sections = self._merge_sections_with_materials(sections, required_materials)
+            
             return {
                 "success": True,
                 "project_info": project_info,
                 "sections": sections,
+                "required_materials": required_materials,
                 "text_preview": text[:2000],
                 "paragraph_count": len(doc.paragraphs),
                 "table_count": len(doc.tables)
@@ -247,6 +298,66 @@ class TenderAnalyzer:
         
         return "other"
     
+    def _analyze_required_materials(self, text: str) -> List[Dict]:
+        """分析招标文件中要求提交的材料
+        
+        Args:
+            text: 文档全文
+        
+        Returns:
+            需要提交的材料列表
+        """
+        text_lower = text.lower()
+        found_materials = []
+        
+        for material_name, config in self.REQUIRED_MATERIALS.items():
+            matched_keywords = []
+            for keyword in config["keywords"]:
+                if keyword in text_lower:
+                    matched_keywords.append(keyword)
+            
+            if matched_keywords:
+                found_materials.append({
+                    "name": material_name,
+                    "section_type": config["section_type"],
+                    "description": config["description"],
+                    "matched_keywords": matched_keywords,
+                    "confidence": min(0.5 + len(matched_keywords) * 0.15, 0.95)
+                })
+        
+        # 按置信度排序
+        found_materials.sort(key=lambda x: x["confidence"], reverse=True)
+        return found_materials
+    
+    def _merge_sections_with_materials(self, sections: List[Dict], materials: List[Dict]) -> List[Dict]:
+        """将章节结构与材料要求合并
+        
+        如果文档中已有明确的章节标题，保留原标题；
+        如果材料要求在文档中没有对应的章节，自动补充。
+        """
+        # 已有的章节类型
+        existing_types = set(s.get("section_type") for s in sections)
+        
+        # 补充文档中没有但材料要求中有的章节
+        for material in materials:
+            if material["section_type"] not in existing_types:
+                sections.append({
+                    "title": material["name"],
+                    "level": 0,
+                    "section_type": material["section_type"],
+                    "order": len(sections) + 1,
+                    "is_required": True,
+                    "requirement": material["description"]
+                })
+        
+        # 标记已有章节中哪些是必须的
+        required_types = set(m["section_type"] for m in materials)
+        for section in sections:
+            if section.get("section_type") in required_types:
+                section["is_required"] = True
+        
+        return sections
+    
     def analyze_pdf(self, file_path: str) -> Dict:
         """分析 PDF 格式的招标文件"""
         try:
@@ -267,10 +378,17 @@ class TenderAnalyzer:
             # PDF 无法直接提取章节结构，尝试从文本中识别
             sections = self._extract_sections_from_text(text)
             
+            # 分析需要提交的材料
+            required_materials = self._analyze_required_materials(text)
+            
+            # 合并章节和材料要求
+            sections = self._merge_sections_with_materials(sections, required_materials)
+            
             return {
                 "success": True,
                 "project_info": project_info,
                 "sections": sections,
+                "required_materials": required_materials,
                 "text_preview": text[:2000],
                 "page_count": len(doc) if doc else 0
             }

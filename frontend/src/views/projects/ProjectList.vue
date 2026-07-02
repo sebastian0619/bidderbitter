@@ -5,16 +5,10 @@
         <h1 class="page-title">投标项目</h1>
         <p class="page-subtitle">管理您的投标项目</p>
       </div>
-      <div class="header-actions">
-        <el-button @click="showTenderDialog = true">
-          <el-icon><Upload /></el-icon>
-          从招标文件创建
-        </el-button>
-        <el-button type="primary" @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon>
-          新增项目
-        </el-button>
-      </div>
+      <el-button type="primary" @click="openCreateDialog">
+        <el-icon><Plus /></el-icon>
+        新增项目
+      </el-button>
     </div>
 
     <el-card>
@@ -94,13 +88,37 @@
       </div>
     </el-card>
 
-    <!-- 创建/编辑项目对话框 -->
+    <!-- 新增项目对话框 -->
     <el-dialog
       v-model="showCreateDialog"
       :title="editingProject ? '编辑项目' : '新增项目'"
-      width="600px"
+      width="650px"
+      @close="resetCreateDialog"
     >
-      <el-form :model="projectForm" label-width="100px">
+      <!-- 新增模式：选择创建方式 -->
+      <div v-if="!editingProject && !createMode" class="create-mode-select">
+        <div class="mode-card" @click="createMode = 'manual'">
+          <div class="mode-icon">
+            <el-icon :size="32"><Edit /></el-icon>
+          </div>
+          <div class="mode-info">
+            <div class="mode-title">手动创建</div>
+            <div class="mode-desc">手动填写项目信息</div>
+          </div>
+        </div>
+        <div class="mode-card" @click="createMode = 'tender'">
+          <div class="mode-icon" style="background: #ecfdf5; color: #10b981;">
+            <el-icon :size="32"><Upload /></el-icon>
+          </div>
+          <div class="mode-info">
+            <div class="mode-title">从招标文件创建</div>
+            <div class="mode-desc">上传招标文件，自动提取项目信息</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 手动创建 / 编辑模式 -->
+      <el-form v-if="createMode === 'manual' || editingProject" :model="projectForm" label-width="100px">
         <el-form-item label="项目名称" required>
           <el-input v-model="projectForm.name" placeholder="请输入项目名称" />
         </el-form-item>
@@ -130,97 +148,103 @@
           />
         </el-form-item>
       </el-form>
-      <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveProject" :disabled="!projectForm.name">
-          {{ editingProject ? '保存' : '创建' }}
-        </el-button>
-      </template>
-    </el-dialog>
 
-    <!-- 从招标文件创建项目对话框 -->
-    <el-dialog
-      v-model="showTenderDialog"
-      title="从招标文件创建项目"
-      width="700px"
-    >
-      <div v-if="!tenderAnalysis">
-        <el-upload
-          ref="tenderUploadRef"
-          :auto-upload="false"
-          :on-change="handleTenderFileChange"
-          :limit="1"
-          accept=".docx,.pdf"
-          drag
-        >
-          <el-icon class="upload-icon"><UploadFilled /></el-icon>
-          <div class="upload-text">拖拽招标文件到此处或<em>点击上传</em></div>
-          <div class="upload-hint">支持 .docx 和 .pdf 格式</div>
-        </el-upload>
-        <el-button 
-          type="primary" 
-          style="width: 100%; margin-top: 16px;" 
-          :disabled="!tenderFile"
-          :loading="analyzing"
-          @click="analyzeTender"
-        >
-          <el-icon><MagicStick /></el-icon>
-          分析招标文件
-        </el-button>
-      </div>
+      <!-- 招标文件上传模式 -->
+      <div v-if="createMode === 'tender' && !editingProject">
+        <!-- 未分析状态：上传文件 -->
+        <div v-if="!tenderAnalysis">
+          <el-upload
+            ref="tenderUploadRef"
+            :auto-upload="false"
+            :on-change="handleTenderFileChange"
+            :limit="1"
+            accept=".docx,.pdf"
+            drag
+            class="tender-upload"
+          >
+            <el-icon class="upload-icon"><UploadFilled /></el-icon>
+            <div class="upload-text">拖拽招标文件到此处或<em>点击上传</em></div>
+            <div class="upload-hint">支持 .docx 和 .pdf 格式</div>
+          </el-upload>
+          <el-button 
+            type="primary" 
+            style="width: 100%; margin-top: 16px;" 
+            :disabled="!tenderFile"
+            :loading="analyzing"
+            @click="analyzeTender"
+          >
+            <el-icon><MagicStick /></el-icon>
+            分析招标文件
+          </el-button>
+        </div>
 
-      <div v-else class="tender-result">
-        <el-alert 
-          :title="`已识别 ${tenderAnalysis.sections.length} 个章节`" 
-          type="success" 
-          show-icon 
-          :closable="false"
-          style="margin-bottom: 16px;"
-        />
-        
-        <el-form :model="tenderForm" label-width="100px">
-          <el-form-item label="项目名称">
-            <el-input v-model="tenderForm.name" />
-          </el-form-item>
-          <el-form-item label="招标人">
-            <el-input v-model="tenderForm.tender_company" />
-          </el-form-item>
-          <el-form-item label="招标代理">
-            <el-input v-model="tenderForm.tender_agency" />
-          </el-form-item>
-          <el-form-item label="截止日期">
-            <el-input v-model="tenderForm.deadline" />
-          </el-form-item>
-        </el-form>
+        <!-- 分析完成：显示结果 -->
+        <div v-else class="tender-result">
+          <el-alert 
+            :title="`已识别 ${tenderAnalysis.sections.length} 个章节`" 
+            type="success" 
+            show-icon 
+            :closable="false"
+            style="margin-bottom: 16px;"
+          />
+          
+          <el-form :model="tenderForm" label-width="100px">
+            <el-form-item label="项目名称">
+              <el-input v-model="tenderForm.name" />
+            </el-form-item>
+            <el-form-item label="招标人">
+              <el-input v-model="tenderForm.tender_company" />
+            </el-form-item>
+            <el-form-item label="招标代理">
+              <el-input v-model="tenderForm.tender_agency" />
+            </el-form-item>
+            <el-form-item label="截止日期">
+              <el-input v-model="tenderForm.deadline" />
+            </el-form-item>
+          </el-form>
 
-        <div class="sections-preview">
-          <h4>识别的章节结构：</h4>
-          <div class="section-tree">
-            <div v-for="section in tenderAnalysis.sections" :key="section.order" class="section-node">
-              <el-icon><Document /></el-icon>
-              <span>{{ section.title }}</span>
-              <el-tag size="small" type="info">{{ section.section_type }}</el-tag>
+          <!-- 需要提交的材料 -->
+          <div class="materials-preview" v-if="tenderAnalysis.required_materials?.length">
+            <h4>本次需要提交的材料：</h4>
+            <div class="materials-list">
+              <div v-for="mat in tenderAnalysis.required_materials" :key="mat.name" class="material-item">
+                <el-icon color="#67C23A"><CircleCheckFilled /></el-icon>
+                <span class="material-name">{{ mat.name }}</span>
+                <span class="material-desc">{{ mat.description }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 章节结构 -->
+          <div class="sections-preview">
+            <h4>投标文件章节结构：</h4>
+            <div class="section-tree">
+              <div v-for="section in tenderAnalysis.sections" :key="section.order" class="section-node" :class="{ 'is-required': section.is_required }">
+                <el-icon><Document /></el-icon>
+                <span>{{ section.title }}</span>
+                <el-tag v-if="section.is_required" size="small" type="success">必填</el-tag>
+                <el-tag v-else size="small" type="info">{{ section.section_type }}</el-tag>
+              </div>
             </div>
           </div>
         </div>
-
-        <div class="text-preview" v-if="tenderAnalysis.text_preview">
-          <h4>文件内容预览：</h4>
-          <el-input 
-            type="textarea" 
-            :model-value="tenderAnalysis.text_preview" 
-            :rows="4" 
-            readonly 
-          />
-        </div>
       </div>
 
       <template #footer>
-        <el-button @click="resetTenderDialog">
-          {{ tenderAnalysis ? '重新选择' : '取消' }}
+        <el-button @click="handleDialogBack" v-if="createMode && !editingProject">
+          {{ createMode === 'tender' && tenderAnalysis ? '重新分析' : '返回' }}
+        </el-button>
+        <el-button @click="showCreateDialog = false">取消</el-button>
+        <el-button 
+          v-if="createMode === 'manual' || editingProject"
+          type="primary" 
+          @click="saveProject" 
+          :disabled="!projectForm.name"
+        >
+          {{ editingProject ? '保存' : '创建' }}
         </el-button>
         <el-button 
-          v-if="tenderAnalysis" 
+          v-if="createMode === 'tender' && tenderAnalysis"
           type="primary" 
           :loading="creating"
           @click="createProjectFromTender"
@@ -237,7 +261,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { projectApi, tenderApi } from '../../services/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Edit, View, Delete, Upload, UploadFilled, MagicStick, Document } from '@element-plus/icons-vue'
+import { Plus, Search, Edit, View, Delete, Upload, UploadFilled, MagicStick, Document, CircleCheckFilled } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const projects = ref([])
@@ -246,8 +270,11 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const search = ref('')
 const status = ref('')
+
+// 创建对话框相关
 const showCreateDialog = ref(false)
 const editingProject = ref(null)
+const createMode = ref(null) // null | 'manual' | 'tender'
 const projectForm = ref({
   name: '',
   tender_company: '',
@@ -258,7 +285,6 @@ const projectForm = ref({
 })
 
 // 招标文件相关
-const showTenderDialog = ref(false)
 const tenderFile = ref(null)
 const tenderAnalysis = ref(null)
 const analyzing = ref(false)
@@ -288,7 +314,7 @@ const formatDate = (dateStr) => {
 const isDeadlineSoon = (deadline) => {
   if (!deadline) return false
   const diff = new Date(deadline) - new Date()
-  return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000 // 3天内
+  return diff > 0 && diff < 3 * 24 * 60 * 60 * 1000
 }
 
 const loadProjects = async () => {
@@ -306,8 +332,37 @@ const loadProjects = async () => {
   }
 }
 
+const openCreateDialog = () => {
+  editingProject.value = null
+  createMode.value = null
+  resetTenderState()
+  showCreateDialog.value = true
+}
+
+const resetCreateDialog = () => {
+  createMode.value = null
+  editingProject.value = null
+  projectForm.value = { name: '', tender_company: '', tender_agency: '', bidder_name: '', deadline: null, description: '' }
+  resetTenderState()
+}
+
+const resetTenderState = () => {
+  tenderFile.value = null
+  tenderAnalysis.value = null
+  tenderForm.value = { name: '', tender_company: '', tender_agency: '', deadline: '' }
+}
+
+const handleDialogBack = () => {
+  if (createMode.value === 'tender' && tenderAnalysis.value) {
+    resetTenderState()
+  } else {
+    createMode.value = null
+  }
+}
+
 const editProject = (project) => {
   editingProject.value = project
+  createMode.value = 'manual'
   projectForm.value = {
     name: project.name,
     tender_company: project.tender_company || '',
@@ -338,8 +393,7 @@ const saveProject = async () => {
       ElMessage.success('创建成功')
     }
     showCreateDialog.value = false
-    editingProject.value = null
-    projectForm.value = { name: '', tender_company: '', tender_agency: '', bidder_name: '', deadline: null, description: '' }
+    resetCreateDialog()
     loadProjects()
   } catch (error) {
     ElMessage.error('保存失败')
@@ -363,7 +417,7 @@ const deleteProject = async (project) => {
   }
 }
 
-// 招标文件相关函数
+// 招标文件相关
 const handleTenderFileChange = (file) => {
   tenderFile.value = file.raw
 }
@@ -376,7 +430,6 @@ const analyzeTender = async () => {
     const res = await tenderApi.analyze(tenderFile.value)
     tenderAnalysis.value = res.data
     
-    // 填充表单
     const info = res.data.project_info
     tenderForm.value = {
       name: info.project_name || '',
@@ -403,8 +456,8 @@ const createProjectFromTender = async () => {
     
     if (res.data.success) {
       ElMessage.success(`项目"${res.data.project_name}"创建成功，包含 ${res.data.sections_count} 个章节`)
-      showTenderDialog.value = false
-      resetTenderDialog()
+      showCreateDialog.value = false
+      resetCreateDialog()
       loadProjects()
     }
   } catch (error) {
@@ -412,12 +465,6 @@ const createProjectFromTender = async () => {
   } finally {
     creating.value = false
   }
-}
-
-const resetTenderDialog = () => {
-  tenderFile.value = null
-  tenderAnalysis.value = null
-  tenderForm.value = { name: '', tender_company: '', tender_agency: '', deadline: '' }
 }
 
 onMounted(loadProjects)
@@ -460,14 +507,61 @@ onMounted(loadProjects)
   justify-content: flex-end;
 }
 
-.header-actions {
-  display: flex;
-  gap: 12px;
-}
-
 .text-danger {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* 创建方式选择 */
+.create-mode-select {
+  display: flex;
+  gap: 16px;
+}
+
+.mode-card {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  border: 2px solid var(--neutral-200);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-card:hover {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+}
+
+.mode-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  background: var(--primary-50);
+  color: var(--primary-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mode-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--neutral-800);
+}
+
+.mode-desc {
+  font-size: 13px;
+  color: var(--neutral-500);
+  margin-top: 4px;
+}
+
+/* 招标文件上传 */
+.tender-upload {
+  margin-bottom: 16px;
 }
 
 .upload-icon {
@@ -493,7 +587,7 @@ onMounted(loadProjects)
 }
 
 .tender-result {
-  max-height: 500px;
+  max-height: 400px;
   overflow-y: auto;
 }
 
@@ -508,7 +602,7 @@ onMounted(loadProjects)
 }
 
 .section-tree {
-  max-height: 200px;
+  max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--neutral-200);
   border-radius: var(--radius-md);
@@ -528,13 +622,46 @@ onMounted(loadProjects)
   border-radius: var(--radius-sm);
 }
 
-.text-preview {
-  margin-top: 16px;
+.section-node.is-required {
+  font-weight: 500;
 }
 
-.text-preview h4 {
+.materials-preview {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.materials-preview h4 {
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: var(--success);
+}
+
+.materials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #f0fdf4;
+  border-radius: var(--radius-md);
+  border: 1px solid #bbf7d0;
+}
+
+.material-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.material-name {
+  font-weight: 500;
+  color: var(--neutral-800);
+}
+
+.material-desc {
+  color: var(--neutral-500);
+  font-size: 12px;
 }
 </style>
