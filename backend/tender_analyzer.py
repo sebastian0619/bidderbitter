@@ -136,6 +136,12 @@ class TenderAnalyzer:
         try:
             from docx import Document
             
+            # 检查文件是否是有效的 zip 文件 (docx 是 zip 格式)
+            import zipfile
+            if not zipfile.is_zipfile(file_path):
+                # 可能是 .doc 格式，尝试用 antiword 或纯文本提取
+                return self._analyze_old_doc(file_path)
+            
             doc = Document(file_path)
             
             # 提取所有文本
@@ -177,7 +183,71 @@ class TenderAnalyzer:
             
         except Exception as e:
             logger.error(f"分析招标文件失败: {e}")
-            return {"success": False, "error": str(e)}
+            # 尝试用纯文本方式提取
+            return self._analyze_as_text(file_path)
+    
+    def _analyze_old_doc(self, file_path: str) -> Dict:
+        """分析旧版 .doc 格式文件"""
+        try:
+            # 尝试用 antiword 提取文本
+            import subprocess
+            result = subprocess.run(['antiword', file_path], capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                text = result.stdout
+            else:
+                # 尝试用 catdoc
+                result = subprocess.run(['catdoc', file_path], capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    text = result.stdout
+                else:
+                    return {"success": False, "error": "无法解析 .doc 格式文件，请转换为 .docx 格式后重试"}
+            
+            return self._process_text(text)
+            
+        except FileNotFoundError:
+            return {"success": False, "error": "无法解析 .doc 格式文件，请转换为 .docx 或 .pdf 格式后重试"}
+        except Exception as e:
+            return {"success": False, "error": f"解析失败: {str(e)}"}
+    
+    def _analyze_as_text(self, file_path: str) -> Dict:
+        """将文件作为纯文本分析（最后的兜底方案）"""
+        try:
+            # 尝试读取为二进制并提取可读文本
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            # 提取可读的 UTF-8 文本
+            text = content.decode('utf-8', errors='ignore')
+            
+            # 过滤掉不可读字符
+            import re
+            text = re.sub(r'[^\x20-\x7e\u4e00-\u9fff\n]', ' ', text)
+            text = re.sub(r'\s+', ' ', text)
+            
+            if len(text) < 50:
+                return {"success": False, "error": "无法从文件中提取文本内容"}
+            
+            return self._process_text(text)
+            
+        except Exception as e:
+            return {"success": False, "error": f"文件解析失败: {str(e)}"}
+    
+    def _process_text(self, text: str) -> Dict:
+        """处理提取的文本"""
+        project_info = self._extract_project_info(text)
+        sections = self._extract_sections_from_text(text)
+        required_materials = self._analyze_required_materials(text)
+        sections = self._merge_sections_with_materials(sections, required_materials)
+        
+        return {
+            "success": True,
+            "project_info": project_info,
+            "sections": sections,
+            "required_materials": required_materials,
+            "text_preview": text[:2000],
+            "paragraph_count": 0,
+            "table_count": 0
+        }
     
     def analyze_with_lexitool(self, file_path: str) -> Dict:
         """使用 lexitool 分析招标文件
