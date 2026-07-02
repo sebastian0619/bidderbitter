@@ -17,14 +17,33 @@
 
 ## 快速开始
 
-### 使用 Docker Compose (推荐)
+### 使用 Public 镜像启动 (推荐)
+
+无需构建，直接使用 GitHub Actions 自动构建的镜像：
 
 ```bash
 # 克隆项目
 git clone https://github.com/sebastian0619/bidderbitter.git
 cd bidderbitter
 
-# 启动服务
+# 使用预构建镜像启动
+docker-compose -f docker-compose.ghcr.yml up -d
+
+# 访问前端
+# http://localhost:3000
+
+# 访问后端 API 文档
+# http://localhost:8000/docs
+```
+
+### 使用本地构建启动
+
+```bash
+# 克隆项目
+git clone https://github.com/sebastian0619/bidderbitter.git
+cd bidderbitter
+
+# 本地构建并启动
 docker-compose up -d
 
 # 访问前端
@@ -32,6 +51,30 @@ docker-compose up -d
 
 # 访问后端 API 文档
 # http://localhost:8000/docs
+```
+
+## 🐳 自动构建
+
+本项目使用 GitHub Actions 自动构建 Docker 镜像：
+
+- **触发条件**: 每次 push 到 main/master/develop 分支
+- **镜像仓库**: GitHub Container Registry (ghcr.io)
+- **镜像权限**: **PUBLIC** - 任何人都可以拉取使用
+- **标签策略**: latest, {branch-name}, {commit-sha}
+
+### 镜像地址
+
+```
+ghcr.io/sebastian0619/bidderbitter/backend:latest
+ghcr.io/sebastian0619/bidderbitter/frontend:latest
+```
+
+### 手动拉取
+
+```bash
+# 无需认证，直接拉取
+docker pull ghcr.io/sebastian0619/bidderbitter/backend:latest
+docker pull ghcr.io/sebastian0619/bidderbitter/frontend:latest
 ```
 
 ### 本地开发
