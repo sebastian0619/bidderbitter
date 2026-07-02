@@ -11,7 +11,7 @@ from pathlib import Path
 from datetime import datetime
 
 from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files
-from ai_classifier import ai_classifier
+from agent_classifier import agent_classifier
 
 app = FastAPI(title="BidTool API", version="0.1.0")
 
@@ -674,7 +674,7 @@ async def classify_file(file_id: int, db: Session = Depends(get_db)):
     
     try:
         # 使用 AI 分类服务
-        result = ai_classifier.classify_by_rules(file.original_filename)
+        result = agent_classifier.classify_by_rules(file.original_filename)
         
         # 更新文件信息
         file.ai_category = result["category"]
@@ -762,7 +762,7 @@ async def batch_classify_files(
         if file:
             files_data.append({"id": file.id, "filename": file.original_filename})
     
-    results = ai_classifier.classify_batch(files_data)
+    results = agent_classifier.classify_batch(files_data)
     
     for result in results:
         file = db.query(ManagedFile).filter(ManagedFile.id == result["file_id"]).first()
@@ -908,6 +908,150 @@ async def create_project_section(
     db.refresh(section)
     
     return {"id": section.id, "title": section.title}
+
+# ==================== Agent 分类系统 API ====================
+
+@app.get("/api/classification/categories")
+async def get_classification_categories():
+    """获取所有文件分类定义"""
+    return agent_classifier.get_all_categories()
+
+@app.post("/api/files/{file_id}/classify-ai")
+async def classify_file_with_ai(file_id: int, db: Session = Depends(get_db)):
+    """使用 Agent (LLM) 深度分类文件"""
+    file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    file.processing_status = "analyzing"
+    db.commit()
+    
+    try:
+        # 读取文件内容预览
+        content_preview = ""
+        if file.file_type == "pdf":
+            try:
+                import fitz
+                doc = fitz.open(file.storage_path)
+                for page in doc[:3]:  # 只读前3页
+                    content_preview += page.get_text()
+                doc.close()
+            except:
+                pass
+        
+        # 使用 LLM 分类
+        result = await agent_classifier.classify_with_llm(
+            file.original_filename, 
+            content_preview
+        )
+        
+        # 更新文件
+        file.ai_category = result["category"]
+        file.ai_confidence = result.get("confidence", 0.5)
+        file.category = result["category"]
+        file.ai_analysis = result
+        file.is_processed = True
+        file.processing_status = "completed"
+        
+        # 添加标签
+        for tag_name in result.get("tags", []):
+            tag = db.query(Tag).filter(Tag.name == tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name, category="auto", color=result.get("color", "#67C23A"))
+                db.add(tag)
+            if tag not in file.tags:
+                file.tags.append(tag)
+        
+        db.commit()
+        
+        return {
+            "category": result["category"],
+            "confidence": result.get("confidence", 0.5),
+            "tags": result.get("tags", []),
+            "summary": result.get("summary", ""),
+            "reason": result.get("reason", ""),
+            "method": result.get("method", "rules"),
+            "message": "分类完成"
+        }
+    except Exception as e:
+        file.processing_status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"分类失败: {str(e)}")
+
+@app.post("/api/files/batch-classify-ai")
+async def batch_classify_files_with_ai(
+    file_ids: List[int],
+    db: Session = Depends(get_db)
+):
+    """批量 AI 分类文件"""
+    results = []
+    
+    for file_id in file_ids:
+        file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if not file:
+            continue
+        
+        # 读取内容预览
+        content_preview = ""
+        if file.file_type == "pdf":
+            try:
+                import fitz
+                doc = fitz.open(file.storage_path)
+                for page in doc[:2]:
+                    content_preview += page.get_text()
+                doc.close()
+            except:
+                pass
+        
+        # 分类
+        result = await agent_classifier.classify_with_llm(
+            file.original_filename,
+            content_preview
+        )
+        
+        # 更新文件
+        file.ai_category = result["category"]
+        file.ai_confidence = result.get("confidence", 0.5)
+        file.category = result["category"]
+        file.is_processed = True
+        
+        # 添加标签
+        for tag_name in result.get("tags", []):
+            tag = db.query(Tag).filter(Tag.name == tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name, category="auto", color=result.get("color", "#67C23A"))
+                db.add(tag)
+            if tag not in file.tags:
+                file.tags.append(tag)
+        
+        results.append({
+            "file_id": file_id,
+            "filename": file.original_filename,
+            "category": result["category"],
+            "confidence": result.get("confidence", 0.5),
+            "tags": result.get("tags", [])
+        })
+    
+    db.commit()
+    return {"results": results, "count": len(results)}
+
+@app.get("/api/files/classification-stats")
+async def get_classification_stats(db: Session = Depends(get_db)):
+    """获取文件分类统计"""
+    from sqlalchemy import func
+    
+    stats = db.query(
+        ManagedFile.ai_category,
+        func.count(ManagedFile.id)
+    ).filter(
+        ManagedFile.ai_category.isnot(None)
+    ).group_by(ManagedFile.ai_category).all()
+    
+    return {
+        "stats": {cat: count for cat, count in stats},
+        "total_classified": sum(count for _, count in stats),
+        "total_files": db.query(ManagedFile).count()
+    }
 
 # ==================== 健康检查 ====================
 

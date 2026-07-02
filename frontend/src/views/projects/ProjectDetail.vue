@@ -133,7 +133,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { projectApi, fileApi } from '../services/api'
+import { projectApi, fileApi } from '../../services/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Plus, Document, Edit, Delete, Picture, Files } from '@element-plus/icons-vue'
 
