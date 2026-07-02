@@ -133,6 +133,14 @@ class TenderAnalyzer:
         Returns:
             分析结果
         """
+        # 先检查文件扩展名
+        import os
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        if ext == '.doc':
+            # .doc 格式直接用旧版解析器
+            return self._analyze_old_doc(file_path)
+        
         try:
             from docx import Document
             
@@ -189,25 +197,84 @@ class TenderAnalyzer:
     def _analyze_old_doc(self, file_path: str) -> Dict:
         """分析旧版 .doc 格式文件"""
         try:
-            # 尝试用 antiword 提取文本
+            import olefile
+            
+            # 使用 olefile 读取 .doc 文件
+            ole = olefile.OleFileIO(file_path)
+            
+            # 尝试读取 WordDocument 流
+            if ole.exists('WordDocument'):
+                # 读取主文档流
+                word_stream = ole.openstream('WordDocument')
+                content = word_stream.read()
+                
+                # 提取文本（简单方法：查找可读文本）
+                text = self._extract_text_from_doc_binary(content)
+                
+                if len(text) > 100:
+                    ole.close()
+                    return self._process_text(text)
+            
+            # 尝试读取其他流
+            for stream_name in ole.listdir():
+                stream_path = '/'.join(stream_name)
+                if 'Table' not in stream_path and 'Data' not in stream_path:
+                    try:
+                        stream = ole.openstream(stream_path)
+                        content = stream.read()
+                        text = self._extract_text_from_doc_binary(content)
+                        if len(text) > 200:
+                            ole.close()
+                            return self._process_text(text)
+                    except:
+                        continue
+            
+            ole.close()
+            
+            # 兜底：尝试用 antiword
             import subprocess
-            result = subprocess.run(['antiword', file_path], capture_output=True, text=True, timeout=30)
+            result = subprocess.run(['antiword', '-m', 'UTF-8', file_path], capture_output=True, timeout=30)
             if result.returncode == 0:
                 text = result.stdout
-            else:
-                # 尝试用 catdoc
-                result = subprocess.run(['catdoc', file_path], capture_output=True, text=True, timeout=30)
-                if result.returncode == 0:
-                    text = result.stdout
-                else:
-                    return {"success": False, "error": "无法解析 .doc 格式文件，请转换为 .docx 格式后重试"}
+                if len(text) > 100:
+                    return self._process_text(text)
             
-            return self._process_text(text)
+            return {"success": False, "error": "无法解析 .doc 格式文件，建议转换为 .docx 或 .pdf 格式后重试"}
             
-        except FileNotFoundError:
-            return {"success": False, "error": "无法解析 .doc 格式文件，请转换为 .docx 或 .pdf 格式后重试"}
         except Exception as e:
-            return {"success": False, "error": f"解析失败: {str(e)}"}
+            logger.error(f"解析 .doc 文件失败: {e}")
+            return {"success": False, "error": f"解析 .doc 文件失败: {str(e)}"}
+    
+    def _extract_text_from_doc_binary(self, data: bytes) -> str:
+        """从 .doc 二进制数据中提取文本"""
+        import re
+        
+        # 尝试 UTF-16 LE 解码（Word 常用编码）
+        try:
+            text = data.decode('utf-16-le', errors='ignore')
+            # 过滤不可读字符
+            text = re.sub(r'[^\x20-\x7e\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\n\r]', ' ', text)
+            text = re.sub(r'\s+', ' ', text)
+            if len(text) > 100:
+                return text
+        except:
+            pass
+        
+        # 尝试 GBK 解码
+        try:
+            text = data.decode('gbk', errors='ignore')
+            text = re.sub(r'[^\x20-\x7e\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\n\r]', ' ', text)
+            text = re.sub(r'\s+', ' ', text)
+            if len(text) > 100:
+                return text
+        except:
+            pass
+        
+        # 最后尝试 ASCII
+        text = data.decode('ascii', errors='ignore')
+        text = re.sub(r'[^\x20-\x7e\n\r]', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        return text
     
     def _analyze_as_text(self, file_path: str) -> Dict:
         """将文件作为纯文本分析（最后的兜底方案）"""
