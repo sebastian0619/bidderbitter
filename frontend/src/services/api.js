@@ -136,10 +136,29 @@ export const projectApi = {
   }
 }
 
+// 招标文件 API
+export const tenderApi = {
+  analyze(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/tender/analyze', formData)
+  },
+  
+  createFromTender(fileId, name) {
+    return api.post('/projects/create-from-tender', null, {
+      params: { file_id: fileId, name }
+    })
+  }
+}
+
 // Agent API
 export const agentApi = {
   classifyFile(fileId) {
     return api.post(`/files/${fileId}/classify`)
+  },
+  
+  classifyFileAI(fileId) {
+    return api.post(`/files/${fileId}/classify-ai`)
   },
   
   batchClassify(fileIds) {

@@ -5,10 +5,16 @@
         <h1 class="page-title">投标项目</h1>
         <p class="page-subtitle">管理您的投标项目</p>
       </div>
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon>
-        新增项目
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="showTenderDialog = true">
+          <el-icon><Upload /></el-icon>
+          从招标文件创建
+        </el-button>
+        <el-button type="primary" @click="showCreateDialog = true">
+          <el-icon><Plus /></el-icon>
+          新增项目
+        </el-button>
+      </div>
     </div>
 
     <el-card>
@@ -131,15 +137,107 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 从招标文件创建项目对话框 -->
+    <el-dialog
+      v-model="showTenderDialog"
+      title="从招标文件创建项目"
+      width="700px"
+    >
+      <div v-if="!tenderAnalysis">
+        <el-upload
+          ref="tenderUploadRef"
+          :auto-upload="false"
+          :on-change="handleTenderFileChange"
+          :limit="1"
+          accept=".docx,.pdf"
+          drag
+        >
+          <el-icon class="upload-icon"><UploadFilled /></el-icon>
+          <div class="upload-text">拖拽招标文件到此处或<em>点击上传</em></div>
+          <div class="upload-hint">支持 .docx 和 .pdf 格式</div>
+        </el-upload>
+        <el-button 
+          type="primary" 
+          style="width: 100%; margin-top: 16px;" 
+          :disabled="!tenderFile"
+          :loading="analyzing"
+          @click="analyzeTender"
+        >
+          <el-icon><MagicStick /></el-icon>
+          分析招标文件
+        </el-button>
+      </div>
+
+      <div v-else class="tender-result">
+        <el-alert 
+          :title="`已识别 ${tenderAnalysis.sections.length} 个章节`" 
+          type="success" 
+          show-icon 
+          :closable="false"
+          style="margin-bottom: 16px;"
+        />
+        
+        <el-form :model="tenderForm" label-width="100px">
+          <el-form-item label="项目名称">
+            <el-input v-model="tenderForm.name" />
+          </el-form-item>
+          <el-form-item label="招标人">
+            <el-input v-model="tenderForm.tender_company" />
+          </el-form-item>
+          <el-form-item label="招标代理">
+            <el-input v-model="tenderForm.tender_agency" />
+          </el-form-item>
+          <el-form-item label="截止日期">
+            <el-input v-model="tenderForm.deadline" />
+          </el-form-item>
+        </el-form>
+
+        <div class="sections-preview">
+          <h4>识别的章节结构：</h4>
+          <div class="section-tree">
+            <div v-for="section in tenderAnalysis.sections" :key="section.order" class="section-node">
+              <el-icon><Document /></el-icon>
+              <span>{{ section.title }}</span>
+              <el-tag size="small" type="info">{{ section.section_type }}</el-tag>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-preview" v-if="tenderAnalysis.text_preview">
+          <h4>文件内容预览：</h4>
+          <el-input 
+            type="textarea" 
+            :model-value="tenderAnalysis.text_preview" 
+            :rows="4" 
+            readonly 
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="resetTenderDialog">
+          {{ tenderAnalysis ? '重新选择' : '取消' }}
+        </el-button>
+        <el-button 
+          v-if="tenderAnalysis" 
+          type="primary" 
+          :loading="creating"
+          @click="createProjectFromTender"
+        >
+          创建项目
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { projectApi } from '../../services/api'
+import { projectApi, tenderApi } from '../../services/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Edit, View, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Edit, View, Delete, Upload, UploadFilled, MagicStick, Document } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const projects = ref([])
@@ -157,6 +255,19 @@ const projectForm = ref({
   bidder_name: '',
   deadline: null,
   description: ''
+})
+
+// 招标文件相关
+const showTenderDialog = ref(false)
+const tenderFile = ref(null)
+const tenderAnalysis = ref(null)
+const analyzing = ref(false)
+const creating = ref(false)
+const tenderForm = ref({
+  name: '',
+  tender_company: '',
+  tender_agency: '',
+  deadline: ''
 })
 
 const getStatusType = (status) => {
@@ -252,6 +363,63 @@ const deleteProject = async (project) => {
   }
 }
 
+// 招标文件相关函数
+const handleTenderFileChange = (file) => {
+  tenderFile.value = file.raw
+}
+
+const analyzeTender = async () => {
+  if (!tenderFile.value) return
+  
+  analyzing.value = true
+  try {
+    const res = await tenderApi.analyze(tenderFile.value)
+    tenderAnalysis.value = res.data
+    
+    // 填充表单
+    const info = res.data.project_info
+    tenderForm.value = {
+      name: info.project_name || '',
+      tender_company: info.tender_company || '',
+      tender_agency: info.tender_agency || '',
+      deadline: info.deadline || ''
+    }
+    
+    ElMessage.success(`分析完成，识别到 ${res.data.sections.length} 个章节`)
+  } catch (error) {
+    ElMessage.error('分析失败: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    analyzing.value = false
+  }
+}
+
+const createProjectFromTender = async () => {
+  creating.value = true
+  try {
+    const res = await tenderApi.createFromTender(
+      tenderAnalysis.value.file_id,
+      tenderForm.value.name
+    )
+    
+    if (res.data.success) {
+      ElMessage.success(`项目"${res.data.project_name}"创建成功，包含 ${res.data.sections_count} 个章节`)
+      showTenderDialog.value = false
+      resetTenderDialog()
+      loadProjects()
+    }
+  } catch (error) {
+    ElMessage.error('创建失败: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    creating.value = false
+  }
+}
+
+const resetTenderDialog = () => {
+  tenderFile.value = null
+  tenderAnalysis.value = null
+  tenderForm.value = { name: '', tender_company: '', tender_agency: '', deadline: '' }
+}
+
 onMounted(loadProjects)
 </script>
 
@@ -292,8 +460,81 @@ onMounted(loadProjects)
   justify-content: flex-end;
 }
 
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
 .text-danger {
   color: var(--danger);
   font-weight: 600;
+}
+
+.upload-icon {
+  font-size: 48px;
+  color: var(--neutral-300);
+  margin-bottom: 8px;
+}
+
+.upload-text {
+  font-size: 14px;
+  color: var(--neutral-600);
+}
+
+.upload-text em {
+  color: var(--primary-600);
+  font-style: normal;
+}
+
+.upload-hint {
+  font-size: 12px;
+  color: var(--neutral-400);
+  margin-top: 4px;
+}
+
+.tender-result {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.sections-preview {
+  margin-top: 16px;
+}
+
+.sections-preview h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.section-tree {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+
+.section-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.section-node:hover {
+  background: var(--neutral-50);
+  border-radius: var(--radius-sm);
+}
+
+.text-preview {
+  margin-top: 16px;
+}
+
+.text-preview h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
 }
 </style>

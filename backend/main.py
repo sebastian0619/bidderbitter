@@ -12,6 +12,7 @@ from datetime import datetime
 
 from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files
 from agent_classifier import agent_classifier
+from tender_analyzer import tender_analyzer
 
 app = FastAPI(title="BidTool API", version="0.1.0")
 
@@ -1051,6 +1052,145 @@ async def get_classification_stats(db: Session = Depends(get_db)):
         "stats": {cat: count for cat, count in stats},
         "total_classified": sum(count for _, count in stats),
         "total_files": db.query(ManagedFile).count()
+    }
+
+# ==================== 招标文件分析 API ====================
+
+@app.post("/api/tender/analyze")
+async def analyze_tender_document(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """上传招标文件并自动分析，提取项目信息和章节结构"""
+    # 保存临时文件
+    import tempfile
+    suffix = Path(file.filename).suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+    
+    try:
+        # 根据文件类型选择分析方法
+        if suffix.lower() == '.pdf':
+            result = tender_analyzer.analyze_pdf(tmp_path)
+        else:
+            result = tender_analyzer.analyze_with_docx(tmp_path)
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "分析失败"))
+        
+        # 同时保存到文件管理
+        today = datetime.now()
+        rel_path = f"{today.year}/{today.month:02d}/{today.day:02d}"
+        save_dir = UPLOAD_DIR / rel_path
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        file_hash = hashlib.md5(content).hexdigest()
+        new_filename = f"{file_hash[:8]}_{file.filename}"
+        file_path = save_dir / new_filename
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # 创建文件记录
+        db_file = ManagedFile(
+            original_filename=file.filename,
+            display_name=file.filename,
+            storage_path=str(file_path),
+            file_type="pdf" if suffix.lower() == '.pdf' else "document",
+            mime_type=file.content_type,
+            file_size=len(content),
+            file_hash=file_hash,
+            category="招标文件",
+            ai_category="招标文件",
+            ai_confidence=0.9,
+            is_processed=True,
+            processing_status="completed"
+        )
+        db.add(db_file)
+        db.commit()
+        db.refresh(db_file)
+        
+        # 添加标签
+        for tag_name in ["招标文件", "投标"]:
+            tag = db.query(Tag).filter(Tag.name == tag_name).first()
+            if not tag:
+                tag = Tag(name=tag_name, category="auto", color="#FF9800")
+                db.add(tag)
+            if tag not in db_file.tags:
+                db_file.tags.append(tag)
+        db.commit()
+        
+        return {
+            "success": True,
+            "file_id": db_file.id,
+            "project_info": result["project_info"],
+            "sections": result["sections"],
+            "text_preview": result["text_preview"],
+            "message": "招标文件分析完成"
+        }
+        
+    finally:
+        # 清理临时文件
+        os.unlink(tmp_path)
+
+@app.post("/api/projects/create-from-tender")
+async def create_project_from_tender(
+    file_id: int,
+    name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """从招标文件创建项目（使用已上传的文件）"""
+    file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    # 分析文件
+    if file.storage_path.endswith('.pdf'):
+        result = tender_analyzer.analyze_pdf(file.storage_path)
+    else:
+        result = tender_analyzer.analyze_with_docx(file.storage_path)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "分析失败"))
+    
+    project_info = result["project_info"]
+    
+    # 创建项目
+    project = Project(
+        name=name or project_info.get("project_name", file.original_filename),
+        tender_company=project_info.get("tender_company"),
+        tender_agency=project_info.get("tender_agency"),
+        bidder_name=project_info.get("bidder_name"),
+        deadline=datetime.fromisoformat(project_info["deadline_parsed"]) if project_info.get("deadline_parsed") else None,
+        description=f"从招标文件自动创建: {file.original_filename}"
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    
+    # 创建章节
+    for section_data in result["sections"]:
+        section = ProjectSection(
+            project_id=project.id,
+            title=section_data["title"],
+            section_type=section_data.get("section_type", "other"),
+            order=section_data.get("order", 0)
+        )
+        db.add(section)
+    
+    # 关联招标文件
+    project.managed_files.append(file)
+    db.commit()
+    
+    return {
+        "success": True,
+        "project_id": project.id,
+        "project_name": project.name,
+        "project_info": project_info,
+        "sections_count": len(result["sections"]),
+        "message": "项目创建成功"
     }
 
 # ==================== 健康检查 ====================
