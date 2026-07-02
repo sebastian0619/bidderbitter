@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "bidtool"
+version = "0.1.0"
+description = "投标文件工具 - PDF处理、图片提取、业绩文档生成"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "PyMuPDF>=1.23",
+    "Pillow>=10.0",
+    "python-docx>=0.8.11",
+]
+
+[project.scripts]
+bidtool = "bidtool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
