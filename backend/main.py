@@ -505,7 +505,7 @@ async def list_projects(
                 "deadline": p.deadline.isoformat() if p.deadline else None,
                 "status": p.status,
                 "description": p.description,
-                "file_count": len(p.files),
+                 "file_count": len(p.managed_files),
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
             for p in projects
@@ -560,7 +560,7 @@ async def get_project(project_id: int, db: Session = Depends(get_db)):
                 "file_type": f.file_type,
                 "category": f.category,
             }
-            for f in project.files
+            for f in project.managed_files
         ],
         "sections": [
             {
@@ -634,8 +634,8 @@ async def add_files_to_project(
     
     files = db.query(ManagedFile).filter(ManagedFile.id.in_(file_ids)).all()
     for f in files:
-        if f not in project.files:
-            project.files.append(f)
+        if f not in project.managed_files:
+            project.managed_files.append(f)
     
     db.commit()
     return {"message": f"添加了 {len(files)} 个文件"}
@@ -652,8 +652,8 @@ async def remove_file_from_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     
     file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
-    if file in project.files:
-        project.files.remove(file)
+    if file in project.managed_files:
+        project.managed_files.remove(file)
         db.commit()
     
     return {"message": "移除成功"}

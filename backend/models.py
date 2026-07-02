@@ -72,7 +72,7 @@ class ManagedFile(Base):
     # 关联
     tags = relationship("Tag", secondary=file_tags, back_populates="files")
     versions = relationship("FileVersion", back_populates="file", cascade="all, delete-orphan")
-    projects = relationship("Project", secondary=project_files, back_populates="files")
+    managed_projects = relationship("Project", secondary=project_files, back_populates="managed_files")
 
 
 class FileVersion(Base):
@@ -101,7 +101,7 @@ class Tag(Base):
     category = Column(String(50))  # 标签分类: 业绩类型, 资质类型, 业务领域等
     created_at = Column(DateTime, default=func.now())
 
-    files = relationship("ManagedFile", secondary=file_tags, back_populates="files")
+    files = relationship("ManagedFile", secondary=file_tags, back_populates="tags")
 
 
 class Project(Base):
@@ -122,7 +122,7 @@ class Project(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # 关联
-    files = relationship("ManagedFile", secondary=project_files, back_populates="projects")
+    managed_files = relationship("ManagedFile", secondary=project_files, back_populates="managed_projects")
     sections = relationship("ProjectSection", back_populates="project", cascade="all, delete-orphan")
 
 
