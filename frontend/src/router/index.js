@@ -20,6 +20,16 @@ const routes = [
     path: '/tags',
     name: 'TagManager',
     component: () => import('../views/TagManager.vue')
+  },
+  {
+    path: '/projects',
+    name: 'ProjectList',
+    component: () => import('../views/projects/ProjectList.vue')
+  },
+  {
+    path: '/projects/:id',
+    name: 'ProjectDetail',
+    component: () => import('../views/projects/ProjectDetail.vue')
   }
 ]
 

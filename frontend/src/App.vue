@@ -23,6 +23,10 @@
           <el-icon><Odometer /></el-icon>
           <template #title>仪表盘</template>
         </el-menu-item>
+        <el-menu-item index="/projects">
+          <el-icon><Folder /></el-icon>
+          <template #title>投标项目</template>
+        </el-menu-item>
         <el-menu-item index="/files">
           <el-icon><FolderOpened /></el-icon>
           <template #title>文件管理</template>
@@ -73,18 +77,28 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { Odometer, FolderOpened, Document, PriceTag, Link } from '@element-plus/icons-vue'
+import { Odometer, FolderOpened, Document, PriceTag, Link, Folder } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const isCollapse = ref(false)
-const activeMenu = computed(() => route.path)
+const activeMenu = computed(() => {
+  // 处理项目详情页面
+  if (route.path.startsWith('/projects/')) {
+    return '/projects'
+  }
+  return route.path
+})
 
 const currentPageTitle = computed(() => {
   const map = {
     '/': '仪表盘',
+    '/projects': '投标项目',
     '/files': '文件管理',
     '/pdf-tools': 'PDF 工具',
     '/tags': '标签管理'
+  }
+  if (route.path.startsWith('/projects/')) {
+    return '项目详情'
   }
   return map[route.path] || ''
 })

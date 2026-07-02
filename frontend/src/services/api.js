@@ -79,4 +79,46 @@ export const pdfApi = {
   }
 }
 
+// 项目 API
+export const projectApi = {
+  list(params) {
+    return api.get('/projects', { params })
+  },
+  
+  create(data) {
+    return api.post('/projects', null, { params: data })
+  },
+  
+  get(id) {
+    return api.get(`/projects/${id}`)
+  },
+  
+  update(id, data) {
+    return api.put(`/projects/${id}`, null, { params: data })
+  },
+  
+  delete(id) {
+    return api.delete(`/projects/${id}`)
+  },
+  
+  addFiles(projectId, fileIds) {
+    return api.post(`/projects/${projectId}/files`, fileIds)
+  },
+  
+  removeFile(projectId, fileId) {
+    return api.delete(`/projects/${projectId}/files/${fileId}`)
+  }
+}
+
+// Agent API
+export const agentApi = {
+  classifyFile(fileId) {
+    return api.post(`/files/${fileId}/classify`)
+  },
+  
+  batchClassify(fileIds) {
+    return api.post('/files/batch-classify', fileIds)
+  }
+}
+
 export default api

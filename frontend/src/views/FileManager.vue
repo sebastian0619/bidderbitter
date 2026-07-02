@@ -207,6 +207,10 @@
       </div>
       <template #footer>
         <el-button @click="showDetail = false">关闭</el-button>
+        <el-button @click="classifyFile(selectedFile)" :loading="classifying">
+          <el-icon><MagicStick /></el-icon>
+          AI 分类
+        </el-button>
         <el-button type="primary" @click="downloadFile(selectedFile)">下载</el-button>
       </template>
     </el-dialog>
@@ -215,11 +219,11 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { fileApi } from '../services/api'
+import { fileApi, agentApi } from '../services/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Upload, Search, Document, Picture, Files, Download,
-  Edit, Delete, List, Grid
+  Edit, Delete, List, Grid, MagicStick
 } from '@element-plus/icons-vue'
 
 const files = ref([])
@@ -232,6 +236,7 @@ const category = ref('')
 const viewMode = ref('table')
 const showDetail = ref(false)
 const selectedFile = ref(null)
+const classifying = ref(false)
 
 const uploadUrl = '/api/files'
 
@@ -324,6 +329,26 @@ const handleUploadSuccess = (response) => {
 
 const handleUploadError = () => {
   ElMessage.error('上传失败')
+}
+
+const classifyFile = async (file) => {
+  classifying.value = true
+  try {
+    const res = await agentApi.classifyFile(file.id)
+    ElMessage.success(`AI 分类完成: ${res.data.category} (${(res.data.confidence * 100).toFixed(0)}% 置信度)`)
+    // 更新文件信息
+    file.category = res.data.category
+    file.ai_category = res.data.category
+    file.ai_confidence = res.data.confidence
+    // 添加新标签
+    if (res.data.tags) {
+      file.tags = res.data.tags.map(tag => ({ name: tag, color: '#67C23A' }))
+    }
+  } catch (error) {
+    ElMessage.error('AI 分类失败')
+  } finally {
+    classifying.value = false
+  }
 }
 
 onMounted(loadFiles)

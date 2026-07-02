@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-from models import get_db, init_db, ManagedFile, Tag, file_tags
+from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files
 
 app = FastAPI(title="BidTool API", version="0.1.0")
 
@@ -466,6 +466,316 @@ async def images_to_pdf(
     db.refresh(db_file)
     
     return {"id": db_file.id, "filename": output_name}
+
+# ==================== 投标项目 API ====================
+
+@app.get("/api/projects")
+async def list_projects(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """获取项目列表"""
+    query = db.query(Project)
+    
+    if status:
+        query = query.filter(Project.status == status)
+    if search:
+        query = query.filter(
+            (Project.name.contains(search)) |
+            (Project.tender_company.contains(search))
+        )
+    
+    total = query.count()
+    projects = query.order_by(Project.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "projects": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "tender_agency": p.tender_agency,
+                "tender_company": p.tender_company,
+                "bidder_name": p.bidder_name,
+                "deadline": p.deadline.isoformat() if p.deadline else None,
+                "status": p.status,
+                "description": p.description,
+                "file_count": len(p.files),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in projects
+        ]
+    }
+
+@app.post("/api/projects")
+async def create_project(
+    name: str,
+    tender_agency: Optional[str] = None,
+    tender_company: Optional[str] = None,
+    bidder_name: Optional[str] = None,
+    deadline: Optional[str] = None,
+    description: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """创建项目"""
+    project = Project(
+        name=name,
+        tender_agency=tender_agency,
+        tender_company=tender_company,
+        bidder_name=bidder_name,
+        deadline=datetime.fromisoformat(deadline) if deadline else None,
+        description=description,
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    
+    return {"id": project.id, "name": project.name}
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: int, db: Session = Depends(get_db)):
+    """获取项目详情"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    return {
+        "id": project.id,
+        "name": project.name,
+        "tender_agency": project.tender_agency,
+        "tender_company": project.tender_company,
+        "bidder_name": project.bidder_name,
+        "deadline": project.deadline.isoformat() if project.deadline else None,
+        "status": project.status,
+        "description": project.description,
+        "files": [
+            {
+                "id": f.id,
+                "filename": f.original_filename,
+                "file_type": f.file_type,
+                "category": f.category,
+            }
+            for f in project.files
+        ],
+        "sections": [
+            {
+                "id": s.id,
+                "title": s.title,
+                "section_type": s.section_type,
+                "order": s.order,
+            }
+            for s in project.sections
+        ],
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+    }
+
+@app.put("/api/projects/{project_id}")
+async def update_project(
+    project_id: int,
+    name: Optional[str] = None,
+    tender_agency: Optional[str] = None,
+    tender_company: Optional[str] = None,
+    bidder_name: Optional[str] = None,
+    deadline: Optional[str] = None,
+    status: Optional[str] = None,
+    description: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """更新项目"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    if name is not None:
+        project.name = name
+    if tender_agency is not None:
+        project.tender_agency = tender_agency
+    if tender_company is not None:
+        project.tender_company = tender_company
+    if bidder_name is not None:
+        project.bidder_name = bidder_name
+    if deadline is not None:
+        project.deadline = datetime.fromisoformat(deadline) if deadline else None
+    if status is not None:
+        project.status = status
+    if description is not None:
+        project.description = description
+    
+    db.commit()
+    return {"message": "更新成功"}
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: int, db: Session = Depends(get_db)):
+    """删除项目"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    db.delete(project)
+    db.commit()
+    return {"message": "删除成功"}
+
+@app.post("/api/projects/{project_id}/files")
+async def add_files_to_project(
+    project_id: int,
+    file_ids: List[int],
+    section_type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """添加文件到项目"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    files = db.query(ManagedFile).filter(ManagedFile.id.in_(file_ids)).all()
+    for f in files:
+        if f not in project.files:
+            project.files.append(f)
+    
+    db.commit()
+    return {"message": f"添加了 {len(files)} 个文件"}
+
+@app.delete("/api/projects/{project_id}/files/{file_id}")
+async def remove_file_from_project(
+    project_id: int,
+    file_id: int,
+    db: Session = Depends(get_db)
+):
+    """从项目移除文件"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    
+    file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+    if file in project.files:
+        project.files.remove(file)
+        db.commit()
+    
+    return {"message": "移除成功"}
+
+# ==================== Agent 自动分类 API ====================
+
+@app.post("/api/files/{file_id}/classify")
+async def classify_file(file_id: int, db: Session = Depends(get_db)):
+    """Agent 自动分类文件"""
+    file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    # 更新处理状态
+    file.processing_status = "analyzing"
+    db.commit()
+    
+    try:
+        # 基于文件名和内容进行分类
+        category, confidence, tags = classify_file_content(file)
+        
+        # 更新文件信息
+        file.ai_category = category
+        file.ai_confidence = confidence
+        file.category = category
+        file.is_processed = True
+        file.processing_status = "completed"
+        
+        # 自动添加标签
+        for tag_name in tags:
+            tag = db.query(Tag).filter(Tag.name == tag_name).first()
+            if not tag:
+                # 创建新标签
+                tag = Tag(name=tag_name, category="auto", color="#67C23A")
+                db.add(tag)
+            if tag not in file.tags:
+                file.tags.append(tag)
+        
+        db.commit()
+        
+        return {
+            "category": category,
+            "confidence": confidence,
+            "tags": tags,
+            "message": "分类完成"
+        }
+    except Exception as e:
+        file.processing_status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"分类失败: {str(e)}")
+
+def classify_file_content(file: ManagedFile) -> tuple:
+    """基于文件名和类型进行智能分类
+    
+    Returns:
+        (category, confidence, tags)
+    """
+    filename = file.original_filename.lower()
+    
+    # 业绩类关键词
+    performance_keywords = ['业绩', '合同', '服务协议', '法律顾问', '委托', '聘用']
+    # 资质类关键词
+    qualification_keywords = ['证书', '执照', '资质', '许可证', '律师证', '营业执照']
+    # 奖项类关键词
+    award_keywords = ['奖项', '获奖', '荣誉', '排名', 'chambers', 'legal500', 'alb']
+    # 财务类关键词
+    finance_keywords = ['审计', '财务', '报表', '纳税', '社保']
+    
+    # 检查关键词匹配
+    for kw in performance_keywords:
+        if kw in filename:
+            return ('业绩', 0.9, ['业绩', '合同'])
+    
+    for kw in qualification_keywords:
+        if kw in filename:
+            return ('资质证照', 0.9, ['资质', '证书'])
+    
+    for kw in award_keywords:
+        if kw in filename:
+            return ('奖项荣誉', 0.9, ['奖项', '荣誉'])
+    
+    for kw in finance_keywords:
+        if kw in filename:
+            return ('财务资料', 0.8, ['财务'])
+    
+    # 基于文件类型的默认分类
+    if file.file_type == 'pdf':
+        return ('文档', 0.5, ['PDF'])
+    elif file.file_type == 'image':
+        return ('图片', 0.5, ['图片'])
+    else:
+        return ('其他', 0.3, [])
+
+@app.post("/api/files/batch-classify")
+async def batch_classify_files(
+    file_ids: List[int],
+    db: Session = Depends(get_db)
+):
+    """批量分类文件"""
+    results = []
+    for file_id in file_ids:
+        file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if file:
+            category, confidence, tags = classify_file_content(file)
+            file.ai_category = category
+            file.ai_confidence = confidence
+            file.category = category
+            file.is_processed = True
+            
+            # 添加标签
+            for tag_name in tags:
+                tag = db.query(Tag).filter(Tag.name == tag_name).first()
+                if not tag:
+                    tag = Tag(name=tag_name, category="auto", color="#67C23A")
+                    db.add(tag)
+                if tag not in file.tags:
+                    file.tags.append(tag)
+            
+            results.append({"id": file_id, "category": category, "tags": tags})
+    
+    db.commit()
+    return {"results": results, "message": f"分类了 {len(results)} 个文件"}
 
 # ==================== 健康检查 ====================
 
