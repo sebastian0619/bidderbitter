@@ -13,7 +13,7 @@ from datetime import datetime
 # 设置 MiMo API 环境变量
 os.environ.setdefault("MIMO_API_KEY", "tp-cvbdchboz3viy5gwd59qrnnli6s9mnsgexbuavd8mo25no2b")
 os.environ.setdefault("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
-os.environ.setdefault("MIMO_MODEL", "mimo/mimo-auto")
+os.environ.setdefault("MIMO_MODEL", "mimo-v2.5")
 
 from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files, User
 from agent_classifier import agent_classifier
@@ -1218,10 +1218,10 @@ async def list_users(db: Session = Depends(get_db)):
 
 @app.post("/api/users")
 async def create_user(
-    username: str,
-    display_name: Optional[str] = None,
-    email: Optional[str] = None,
-    role: str = "member",
+    username: str = Query(...),
+    display_name: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+    role: str = Query("member"),
     db: Session = Depends(get_db)
 ):
     """创建用户"""
