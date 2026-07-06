@@ -46,13 +46,17 @@ async def upload_file(
     category: Optional[str] = None,
     description: Optional[str] = None,
     save_to_manager: bool = True,
+    not_shared: bool = False,
     db: Session = Depends(get_db)
 ):
     """上传文件
     
     Args:
         save_to_manager: 是否存入文件管理，默认为 True
+        not_shared: 是否不共享，默认为 False（即默认共享）
     """
+    # 共享逻辑：默认共享，除非明确勾选不共享
+    is_shared = not not_shared
     # 计算文件哈希
     content = await file.read()
     file_hash = hashlib.md5(content).hexdigest()
@@ -88,6 +92,9 @@ async def upload_file(
     
     # 根据 save_to_manager 决定是否创建数据库记录
     if save_to_manager:
+        # 判断是否为参考资料（业绩/证照等），默认标记为参考资料
+        is_reference = category in ["业绩", "资质证照", "奖项荣誉", "合同", None]
+        
         db_file = ManagedFile(
             original_filename=file.filename,
             display_name=file.filename,
@@ -98,11 +105,13 @@ async def upload_file(
             file_hash=file_hash,
             category=category or "uploaded",
             description=description,
+            is_shared=is_shared,  # 默认共享，除非明确不共享
+            is_reference=is_reference,
         )
         db.add(db_file)
         db.commit()
         db.refresh(db_file)
-        return {"id": db_file.id, "filename": db_file.original_filename, "size": db_file.file_size}
+        return {"id": db_file.id, "filename": db_file.original_filename, "size": db_file.file_size, "is_shared": is_shared}
     else:
         # 临时文件，返回文件路径作为 ID
         return {"id": f"temp_{file_hash[:8]}", "filename": file.filename, "size": len(content), "temp": True, "path": str(file_path)}
