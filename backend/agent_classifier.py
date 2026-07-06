@@ -97,17 +97,20 @@ CATEGORY_RULES = {
 class AgentClassifier:
     """Agent 文件分类器"""
     
-    def __init__(self, llm_provider=None, llm_api_key=None, llm_base_url=None):
+    def __init__(self, llm_provider=None, llm_api_key=None, llm_base_url=None, llm_model=None):
         """初始化分类器
         
         Args:
-            llm_provider: LLM 提供商 (openai/azure/custom)
+            llm_provider: LLM 提供商 (openai/mimo/custom)
             llm_api_key: API Key
             llm_base_url: API Base URL
+            llm_model: 模型名称
         """
-        self.llm_provider = llm_provider or os.getenv("AI_PROVIDER", "openai")
-        self.llm_api_key = llm_api_key or os.getenv("OPENAI_API_KEY")
-        self.llm_base_url = llm_base_url or os.getenv("OPENAI_BASE_URL")
+        # 优先使用 MiMo API（本地环境）
+        self.llm_provider = llm_provider or os.getenv("AI_PROVIDER", "mimo")
+        self.llm_api_key = llm_api_key or os.getenv("MIMO_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.llm_base_url = llm_base_url or os.getenv("MIMO_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+        self.llm_model = llm_model or os.getenv("MIMO_MODEL") or os.getenv("OPENAI_MODEL", "mimo/mimo-auto")
     
     def classify_by_rules(self, filename: str, content_preview: str = "") -> Dict:
         """基于规则的快速分类
@@ -218,7 +221,7 @@ class AgentClassifier:
             }
             
             body = {
-                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                "model": self.llm_model,
                 "messages": [
                     {"role": "system", "content": "你是一个专业的法律文档分类助手。请始终以JSON格式回复。"},
                     {"role": "user", "content": prompt}
@@ -227,7 +230,7 @@ class AgentClassifier:
                 "max_tokens": 500
             }
             
-            base_url = self.llm_base_url or "https://api.openai.com/v1"
+            base_url = self.llm_base_url or "https://token-plan-cn.xiaomimimo.com/v1"
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(

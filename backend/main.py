@@ -10,7 +10,12 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files
+# 设置 MiMo API 环境变量
+os.environ.setdefault("MIMO_API_KEY", "tp-cvbdchboz3viy5gwd59qrnnli6s9mnsgexbuavd8mo25no2b")
+os.environ.setdefault("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
+os.environ.setdefault("MIMO_MODEL", "mimo/mimo-auto")
+
+from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files, User
 from agent_classifier import agent_classifier
 from tender_analyzer import tender_analyzer
 
@@ -1192,6 +1197,96 @@ async def create_project_from_tender(
         "sections_count": len(result["sections"]),
         "message": "项目创建成功"
     }
+
+# ==================== 用户管理 API ====================
+
+@app.get("/api/users")
+async def list_users(db: Session = Depends(get_db)):
+    """获取用户列表"""
+    users = db.query(User).filter(User.is_active == True).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "display_name": u.display_name,
+            "role": u.role,
+            "project_count": len(u.projects),
+            "file_count": len(u.uploaded_files)
+        }
+        for u in users
+    ]
+
+@app.post("/api/users")
+async def create_user(
+    username: str,
+    display_name: Optional[str] = None,
+    email: Optional[str] = None,
+    role: str = "member",
+    db: Session = Depends(get_db)
+):
+    """创建用户"""
+    existing = db.query(User).filter(User.username == username).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    
+    user = User(
+        username=username,
+        display_name=display_name or username,
+        email=email,
+        role=role
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "username": user.username}
+
+@app.get("/api/users/{user_id}")
+async def get_user(user_id: int, db: Session = Depends(get_db)):
+    """获取用户详情"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    
+    return {
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "email": user.email,
+        "role": user.role,
+        "projects": [
+            {"id": p.id, "name": p.name, "status": p.status}
+            for p in user.projects
+        ],
+        "uploaded_files_count": len(user.uploaded_files)
+    }
+
+@app.get("/api/files/shared")
+async def list_shared_files(
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """获取团队共享的参考资料（业绩/证照等）"""
+    query = db.query(ManagedFile).filter(
+        ManagedFile.is_shared == True,
+        ManagedFile.is_reference == True
+    )
+    
+    if category:
+        query = query.filter(ManagedFile.ai_category == category)
+    
+    files = query.order_by(ManagedFile.created_at.desc()).all()
+    
+    return [
+        {
+            "id": f.id,
+            "filename": f.original_filename,
+            "category": f.ai_category or f.category,
+            "tags": [{"id": t.id, "name": t.name} for t in f.tags],
+            "uploader": f.uploader.display_name if f.uploader else None,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        }
+        for f in files
+    ]
 
 # ==================== 健康检查 ====================
 

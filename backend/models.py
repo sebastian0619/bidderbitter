@@ -10,6 +10,25 @@ from sqlalchemy.sql import func
 
 Base = declarative_base()
 
+# ==================== 用户管理 ====================
+
+class User(Base):
+    """用户表"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), nullable=False, unique=True)
+    display_name = Column(String(200))
+    email = Column(String(200))
+    role = Column(String(50), default="member")  # admin, member
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    last_login = Column(DateTime)
+    
+    # 关联
+    projects = relationship("Project", back_populates="owner")
+    uploaded_files = relationship("ManagedFile", back_populates="uploader")
+
 # 文件-标签关联表
 file_tags = Table(
     'file_tags',
@@ -39,6 +58,7 @@ class ManagedFile(Base):
     original_filename = Column(String(300), nullable=False)
     display_name = Column(String(300), nullable=False)
     storage_path = Column(String(500), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 上传者
 
     # 文件信息
     file_type = Column(String(50))  # document, image, pdf
@@ -50,6 +70,10 @@ class ManagedFile(Base):
     category = Column(String(100))  # 合同、证书、业绩、奖项等
     description = Column(Text)
     keywords = Column(String(500))
+    
+    # 共享属性 - 业绩/证照等参考资料默认共享
+    is_shared = Column(Boolean, default=True)  # 是否团队共享
+    is_reference = Column(Boolean, default=False)  # 是否参考资料（业绩/证照等）
 
     # AI 分类结果
     ai_category = Column(String(100))  # AI 判断的分类
@@ -73,6 +97,7 @@ class ManagedFile(Base):
     tags = relationship("Tag", secondary=file_tags, back_populates="files")
     versions = relationship("FileVersion", back_populates="file", cascade="all, delete-orphan")
     managed_projects = relationship("Project", secondary=project_files, back_populates="managed_files")
+    uploader = relationship("User", back_populates="uploaded_files")
 
 
 class FileVersion(Base):
@@ -110,6 +135,7 @@ class Project(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(300), nullable=False)  # 项目名称
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 项目负责人
     tender_agency = Column(String(300))  # 招标代理机构
     tender_company = Column(String(300))  # 招标人
     bidder_name = Column(String(300))  # 投标人全称
@@ -122,6 +148,7 @@ class Project(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
     # 关联
+    owner = relationship("User", back_populates="projects")
     managed_files = relationship("ManagedFile", secondary=project_files, back_populates="managed_projects")
     sections = relationship("ProjectSection", back_populates="project", cascade="all, delete-orphan")
 
