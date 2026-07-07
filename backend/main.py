@@ -18,6 +18,7 @@ os.environ.setdefault("MIMO_MODEL", "mimo-v2.5")
 from models import get_db, init_db, ManagedFile, Tag, file_tags, Project, ProjectSection, SectionDocument, project_files, User
 from agent_classifier import agent_classifier
 from tender_analyzer import tender_analyzer
+from agent_service import agent, AgentContext
 
 app = FastAPI(title="BidTool API", version="0.1.0")
 
@@ -1297,10 +1298,130 @@ async def list_shared_files(
         for f in files
     ]
 
+# ==================== Agent 智能代理 API ====================
+
+@app.post("/api/agent/run")
+async def run_agent(
+    task: str = Query(..., description="任务描述"),
+    user_id: Optional[int] = Query(None),
+    project_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """运行 Agent 执行任务
+    
+    Agent 会自主思考、规划、执行多步骤任务。
+    """
+    context = AgentContext(
+        task_id=f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        user_id=user_id,
+        project_id=project_id
+    )
+    
+    result = await agent.run(task, context)
+    return result
+
+@app.post("/api/agent/classify-batch")
+async def agent_classify_batch(
+    file_ids: List[int],
+    db: Session = Depends(get_db)
+):
+    """Agent 批量分类文件
+    
+    使用 Agent 自主分析每个文件并分类。
+    """
+    results = []
+    
+    for file_id in file_ids:
+        file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+        if not file:
+            continue
+        
+        # 让 Agent 分析文件
+        task = f"分析文件 '{file.original_filename}' 并判断其类别（业绩/资质证照/奖项荣誉/财务资料/团队资料/公司资料/投标文件/其他）"
+        context = AgentContext(task_id=f"classify_{file_id}")
+        
+        result = await agent.run(task, context)
+        
+        if result.get("success"):
+            # 从结果中提取分类
+            category = "其他"
+            try:
+                # 尝试解析 Agent 返回的分类
+                agent_result = result.get("result", {})
+                if isinstance(agent_result, dict):
+                    category = agent_result.get("category", "其他")
+                elif isinstance(agent_result, str):
+                    import re
+                    json_match = re.search(r'"category"\s*:\s*"([^"]+)"', agent_result)
+                    if json_match:
+                        category = json_match.group(1)
+            except:
+                pass
+            
+            # 更新文件分类
+            file.ai_category = category
+            file.category = category
+            file.is_processed = True
+            
+            # 添加标签
+            for tag_name in [category]:
+                tag = db.query(Tag).filter(Tag.name == tag_name).first()
+                if not tag:
+                    tag = Tag(name=tag_name, category="auto", color="#67C23A")
+                    db.add(tag)
+                if tag not in file.tags:
+                    file.tags.append(tag)
+            
+            results.append({
+                "file_id": file_id,
+                "filename": file.original_filename,
+                "category": category,
+                "agent_steps": result.get("steps", 0)
+            })
+    
+    db.commit()
+    return {"results": results, "count": len(results)}
+
+@app.post("/api/agent/analyze-tender")
+async def agent_analyze_tender(
+    file_id: int,
+    db: Session = Depends(get_db)
+):
+    """Agent 分析招标文件
+    
+    Agent 会自主读取招标文件，提取项目信息，识别需要提交的材料。
+    """
+    file = db.query(ManagedFile).filter(ManagedFile.id == file_id).first()
+    if not file:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    task = f"""分析招标文件 '{file.original_filename}'，完成以下任务：
+1. 读取文件内容
+2. 提取项目信息（项目名称、招标人、截止日期等）
+3. 识别需要提交的材料类型
+4. 识别文档章节结构"""
+    
+    context = AgentContext(
+        task_id=f"tender_{file_id}",
+        files=[{"id": file.id, "filename": file.original_filename}]
+    )
+    
+    result = await agent.run(task, context)
+    return result
+
+@app.get("/api/agent/tools")
+async def list_agent_tools():
+    """获取 Agent 可用工具列表"""
+    return [
+        {"name": t.name, "description": t.description}
+        for t in agent.tools.values()
+    ]
+
 # ==================== 健康检查 ====================
 
 @app.get("/api/health")
 async def health_check():
+    return {"status": "ok", "version": "0.1.0"}
     return {"status": "ok", "version": "0.1.0"}
 
 if __name__ == "__main__":
